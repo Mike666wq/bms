@@ -29,7 +29,8 @@ namespace BmsSerialDemo
         internal string LastAuthorization { get; private set; }
         internal string LastPath { get; private set; }
         internal string LastBody { get; private set; }
-        internal int Requests;
+        int requests;
+        internal int Requests { get { return Thread.VolatileRead(ref requests); } }
         internal ControlledCloudTransportTestHost()
         {
             listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); Port = ((IPEndPoint)listener.LocalEndpoint).Port;
@@ -42,7 +43,7 @@ namespace BmsSerialDemo
             {
                 TcpClient client = null;
                 try { client = listener.AcceptTcpClient(); }
-                catch { if (stopping) return; continue; }
+                catch { if (stopping) return; Thread.Sleep(100); continue; }
                 using (client) try { Handle(client); } catch { }
             }
         }
@@ -57,7 +58,7 @@ namespace BmsSerialDemo
             LastAuthorization = authorization;
             byte[] drain = new byte[4096]; using (MemoryStream requestBody = new MemoryStream()) { while (length > 0) { int n = stream.Read(drain, 0, Math.Min(drain.Length, length)); if (n <= 0) break; requestBody.Write(drain, 0, n); length -= n; } LastBody = Encoding.UTF8.GetString(requestBody.ToArray()); }
             Reply reply = next;
-            Interlocked.Increment(ref Requests);
+            Interlocked.Increment(ref requests);
             if (reply.DelayBeforeHeaders > 0) Thread.Sleep(reply.DelayBeforeHeaders);
             byte[] body = Encoding.UTF8.GetBytes(reply.Body ?? "");
             StringBuilder headers = new StringBuilder("HTTP/1.1 ").Append(reply.Status).Append(reply.Status == 200 ? " OK\r\n" : " Test\r\n").Append("Connection: close\r\n");

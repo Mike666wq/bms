@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace BmsSerialDemo
@@ -28,7 +29,10 @@ namespace BmsSerialDemo
             BorderStyle=BorderStyle.None;
             if(control is TextBox)((TextBox)control).BorderStyle=BorderStyle.None;
             if(control is ComboBox)((ComboBox)control).FlatStyle=FlatStyle.Flat;
-            if(control is NumericUpDown)((NumericUpDown)control).BorderStyle=BorderStyle.None;
+            if(control is NumericUpDown){NumericUpDown numeric=(NumericUpDown)control;numeric.BorderStyle=BorderStyle.None;numeric.TextAlign=HorizontalAlignment.Center;}
+            // U1：圆角宿主内的 ComboBox/DateTimePicker/NumericUpDown 关闭系统主题，3D 立体边框/按钮
+            // 退化为细平面外观，与宿主圆角边框不再叠出“双边框”； IME/下拉/键盘语义保持原生。
+            if(control is ComboBox||control is DateTimePicker||control is NumericUpDown)control.HandleCreated+=delegate{try{SetWindowTheme(control.Handle,"","");}catch{}};
             control.Font=editorFont;
             control.Dock=DockStyle.Fill;control.Margin=Padding.Empty;control.BackColor=Color.White;Controls.Add(control);
             control.Enter+=delegate{focused=true;Invalidate();};control.Leave+=delegate{focused=false;Invalidate();};
@@ -54,6 +58,7 @@ namespace BmsSerialDemo
         {
             GraphicsPath p=new GraphicsPath();float d=Math.Min(radius*2,Math.Min(r.Width,r.Height));p.AddArc(r.Left,r.Top,d,d,180,90);p.AddArc(r.Right-d,r.Top,d,d,270,90);p.AddArc(r.Right-d,r.Bottom-d,d,d,0,90);p.AddArc(r.Left,r.Bottom-d,d,d,90,90);p.CloseFigure();return p;
         }
+        [DllImport("uxtheme.dll",CharSet=CharSet.Unicode,ExactSpelling=true)]static extern int SetWindowTheme(IntPtr hwnd,string pszSubAppName,string pszSubIdList);
     }
 
     class StyledCheckBox : Control

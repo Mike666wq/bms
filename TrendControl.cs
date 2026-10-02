@@ -31,7 +31,7 @@ namespace BmsSerialDemo
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);Graphics g=e.Graphics;g.SmoothingMode=SmoothingMode.AntiAlias;g.Clear(Color.White);
-            Rectangle plot=new Rectangle(65,15,Math.Max(80,Width-88),Math.Max(55,Height-65));Color gridColor=Color.FromArgb(226,233,241),inkColor=Color.FromArgb(105,122,143),lineColor=Color.FromArgb(40,119,190);
+            Rectangle plot=new Rectangle(65,24,Math.Max(80,Width-88),Math.Max(55,Height-65));Color gridColor=Color.FromArgb(226,233,241),inkColor=Color.FromArgb(105,122,143),lineColor=Color.FromArgb(40,119,190);
             using(Pen grid=new Pen(gridColor,1))using(Pen axis=new Pen(Color.FromArgb(177,193,211),1))using(Pen line=new Pen(lineColor,2.4f))using(Brush ink=new SolidBrush(inkColor))using(Brush area=new SolidBrush(Color.FromArgb(22,60,145,218)))using(Font tickFont=new Font("Microsoft YaHei UI",8))
             {
                 List<PointValue> list;if(!history.TryGetValue(SelectedPack,out list)||list.Count==0){for(int i=0;i<=4;i++){int y=plot.Top+plot.Height*i/4;g.DrawLine(grid,plot.Left,y,plot.Right,y);}g.DrawString("等待 Pack "+SelectedPack+" 实时采样",Font,ink,plot.Left+10,plot.Top+12);return;}
@@ -46,7 +46,7 @@ namespace BmsSerialDemo
                 string latest=Value(list[list.Count-1]).ToString(valueFormat,CultureInfo.InvariantCulture)+" "+Unit;using(Font latestFont=new Font("Microsoft YaHei UI",9,FontStyle.Bold))g.DrawString(latest,latestFont,Brushes.SteelBlue,plot.Right-80,plot.Top-1);
                 string t0=list[0].Utc.ToLocalTime().ToString("HH:mm:ss"),t1=list[list.Count-1].Utc.ToLocalTime().ToString("HH:mm:ss");g.DrawString(t0,tickFont,ink,plot.Left,plot.Bottom+4);SizeF endSize=g.MeasureString(t1,tickFont);g.DrawString(t1,tickFont,ink,plot.Right-endSize.Width,plot.Bottom+4);
                 string caption="本地采样时间 · "+list.Count+"/"+capacity+" 点";SizeF cap=g.MeasureString(caption,tickFont);g.DrawString(caption,tickFont,ink,(plot.Left+plot.Right-cap.Width)/2,plot.Bottom+4);
-                g.DrawString((seriesIndex==0?"总压":seriesIndex==1?"电流":"SOC")+" ("+Unit+")",tickFont,ink,1,plot.Top+1);
+                g.DrawString((seriesIndex==0?"总压":seriesIndex==1?"电流":"SOC")+" ("+Unit+")",tickFont,ink,1,2);
             }
         }
     }

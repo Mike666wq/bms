@@ -42,6 +42,7 @@ namespace BmsSerialDemo
             string s = Encoding.ASCII.GetString(raw);
             int lw = int.Parse(s.Substring(9, 4), NumberStyles.HexNumber);
             int len = lw & 4095;
+            if (len % 2 != 0) throw new FormatException("LENID 为奇数，INFO 字节长度非法");
             if (LengthWord(len) != lw) throw new FormatException("LCHKSUM 错误");
             if (raw.Length != 18 + len) throw new FormatException("帧长度错误");
             int sum = 0;

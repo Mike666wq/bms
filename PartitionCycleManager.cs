@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace BmsSerialDemo
 {
@@ -27,7 +28,14 @@ namespace BmsSerialDemo
         int activeDays = 30, pendingDays, epoch = 1;
         DateTime anchorUtc = DateTime.MinValue, pendingBoundaryUtc = DateTime.MinValue, lastCycleStartUtc = DateTime.MinValue;
         string currentFileName = "", currentZoneId = "";
-        bool invalidState;
+        // C3：状态保存失败不再永久停库。saveDegraded 表示"持久化降级"——周期切换暂缓，当前库继续写。
+        bool saveDegraded;
+        string saveDegradedError = "";
+        string startupNotice = "";
+
+        public string StartupNotice { get { lock (sync) return startupNotice; } }
+        public bool SaveDegraded { get { lock (sync) return saveDegraded; } }
+        public string SaveDegradedError { get { lock (sync) return saveDegradedError; } }
 
         public int ActiveDays { get { lock (sync) return activeDays; } }
         public int PendingDays { get { lock (sync) return pendingDays; } }
@@ -46,22 +54,28 @@ namespace BmsSerialDemo
             utc = AsUtc(utc);
             lock (sync)
             {
-                ThrowIfInvalid();
                 DateTime effective = utc;
-                if (anchorUtc == DateTime.MinValue) { anchorUtc = effective; if (pendingDays > 0) pendingBoundaryUtc = anchorUtc.AddDays(activeDays); Save(); }
+                if (anchorUtc == DateTime.MinValue) { anchorUtc = effective; if (pendingDays > 0) pendingBoundaryUtc = anchorUtc.AddDays(activeDays); TrySaveWithRetry(); }
                 if (lastCycleStartUtc != DateTime.MinValue && effective < lastCycleStartUtc) effective = lastCycleStartUtc;
                 ApplyPendingIfDue(effective);
-                DateTime start = CycleStart(effective, anchorUtc, activeDays), end = start.AddDays(activeDays);
+                DateTime start = CycleStart(effective, anchorUtc, activeDays);
                 if (lastCycleStartUtc == DateTime.MinValue || start > lastCycleStartUtc)
                 {
-                    lastCycleStartUtc = start; currentFileName = ""; currentZoneId = ""; Save();
+                    // C3：周期切换必须先持久化；保存失败则回滚到当前周期继续写库，下个采集周期自动重试。
+                    // 首个周期没有可回滚的旧库，保留内存态继续（目录发现兜底历史，重启后重开新周期）。
+                    bool hadCycle = lastCycleStartUtc != DateTime.MinValue && currentFileName.Length > 0;
+                    StateSnapshot snapshot = TakeSnapshot();
+                    lastCycleStartUtc = start; currentFileName = ""; currentZoneId = "";
+                    if (!TrySaveWithRetry() && hadCycle) { RestoreSnapshot(snapshot); start = lastCycleStartUtc; }
                 }
+                DateTime end = start.AddDays(activeDays);
                 if (String.IsNullOrEmpty(currentFileName))
                 {
                     TimeZoneInfo localZone = timeZoneProvider();
                     DateTime local = TimeZoneInfo.ConvertTimeFromUtc(start, localZone);
                     currentFileName = source + "_cycle_" + local.ToString("yyyyMMdd'T'HHmmssfff", CultureInfo.InvariantCulture) + "_" + activeDays.ToString(CultureInfo.InvariantCulture) + "d_" + epoch.ToString("D6", CultureInfo.InvariantCulture) + "_001.db";
-                    currentZoneId = localZone.Id; ValidateCurrentFileName(currentFileName, activeDays, epoch); Save();
+                    currentZoneId = localZone.Id; ValidateCurrentFileName(currentFileName, activeDays, epoch);
+                    TrySaveWithRetry();
                 }
                 string dir = Path.Combine(dataRoot, deviceId); Directory.CreateDirectory(dir);
                 return new PartitionDescriptor { DatabasePath = Path.Combine(dir, currentFileName), StartUtc = start, EndUtc = end, Days = activeDays, Epoch = epoch };
@@ -76,7 +90,7 @@ namespace BmsSerialDemo
             nowUtc = AsUtc(nowUtc);
             lock (sync)
             {
-                ThrowIfInvalid();
+                StateSnapshot snapshot = TakeSnapshot();
                 DateTime effective = nowUtc;
                 if (lastCycleStartUtc != DateTime.MinValue && effective < lastCycleStartUtc) effective = lastCycleStartUtc;
                 if (anchorUtc != DateTime.MinValue) ApplyPendingIfDue(effective);
@@ -95,7 +109,8 @@ namespace BmsSerialDemo
                     pendingDays = days == activeDays ? 0 : days;
                     pendingBoundaryUtc = pendingDays == 0 ? DateTime.MinValue : CycleStart(effective, anchorUtc, activeDays).AddDays(activeDays);
                 }
-                Save();
+                // C3：设置无法持久化时回滚并报错（不损坏内存态、不影响数据记录），用户可重试。
+                if (!TrySaveWithRetry()) { string detail = saveDegradedError; RestoreSnapshot(snapshot); throw new InvalidOperationException("分期设置未能保存（" + detail + "）；周期设置未变更，数据记录未受影响：" + statePath); }
             }
         }
 
@@ -105,11 +120,11 @@ namespace BmsSerialDemo
             nowUtc = AsUtc(nowUtc);
             lock (sync)
             {
-                ThrowIfInvalid();
+                string degraded = saveDegraded ? "注意：分期状态保存持续失败（" + saveDegradedError + "），周期切换暂缓，数据仍写入当前库。" : "";
                 if (anchorUtc == DateTime.MinValue)
                 {
                     DateTime projectedBoundary = nowUtc.AddDays(activeDays);
-                    return "当前每 " + activeDays + " 天一库；尚未开始首期，若现在开始，预计下一切换 " + projectedBoundary.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + "。" + (pendingDays > 0 ? "该边界后改为 " + pendingDays + " 天。" : "");
+                    return "当前每 " + activeDays + " 天一库；尚未开始首期，若现在开始，预计下一切换 " + projectedBoundary.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + "。" + (pendingDays > 0 ? "该边界后改为 " + pendingDays + " 天。" : "") + degraded;
                 }
                 DateTime effective = nowUtc < lastCycleStartUtc ? lastCycleStartUtc : nowUtc;
                 DateTime start = CycleStart(effective, anchorUtc, activeDays);
@@ -117,7 +132,7 @@ namespace BmsSerialDemo
                 string result = "当前每 " + activeDays + " 天一库（本地起始 " + start.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + "）；下一切换 " + nextBoundary.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
                 if (pendingDays > 0) result += " 起改为 " + pendingDays + " 天。";
                 else result += "。";
-                return result + "采集间隔独立。";
+                return result + "采集间隔独立。" + degraded;
             }
         }
 
@@ -126,11 +141,13 @@ namespace BmsSerialDemo
         void ApplyPendingIfDue(DateTime utc)
         {
             if (pendingDays <= 0 || pendingBoundaryUtc == DateTime.MinValue || utc < pendingBoundaryUtc) return;
+            // Persist the fixed transition before deriving the present cycle. A long shutdown must not move it.
+            // C3：无法持久化时回滚，下一边界重试；期间按原周期继续写当前库。
+            StateSnapshot snapshot = TakeSnapshot();
             DateTime boundary = pendingBoundaryUtc;
             activeDays = pendingDays; pendingDays = 0; pendingBoundaryUtc = DateTime.MinValue;
             anchorUtc = boundary; epoch++; lastCycleStartUtc = boundary; currentFileName = ""; currentZoneId = "";
-            // Persist the fixed transition before deriving the present cycle. A long shutdown must not move it.
-            Save();
+            if (!TrySaveWithRetry()) RestoreSnapshot(snapshot);
         }
 
         static DateTime CycleStart(DateTime utc, DateTime anchor, int days)
@@ -162,17 +179,65 @@ namespace BmsSerialDemo
                 if (file.Length > 0) ValidateCurrentFileName(file, a, e);
                 activeDays = a; pendingDays = p; epoch = e; anchorUtc = FromTicks(anchor); pendingBoundaryUtc = FromTicks(boundary); lastCycleStartUtc = FromTicks(last); currentFileName = file; currentZoneId = zone;
             }
-            catch (Exception ex) { invalidState = true; throw new InvalidDataException("分期配置损坏或与当前设备/来源不匹配，已拒绝继续写入：" + statePath, ex); }
+            catch (Exception ex)
+            {
+                // 损坏/身份不符的状态不再让应用启动即崩溃：隔离原始文件保留证据，重置为默认周期继续运行。
+                // 周期库文件不删除，历史数据仍可查询；重置只影响“当前周期指针”，下次写入从新周期开始。
+                startupNotice = "分期配置与当前设备/来源不符或已损坏，原文件已隔离备份，分期已重置为默认 30 天。" + statePath;
+                try { QuarantineStateFile(ex); } catch (Exception moveEx) { startupNotice = "分期配置损坏且隔离备份失败，将在首次保存时覆盖：" + statePath; CrashLogger.Write("分期状态文件隔离备份失败", new AggregateException(ex, moveEx)); }
+                activeDays = 30; pendingDays = 0; epoch = 1; anchorUtc = DateTime.MinValue; pendingBoundaryUtc = DateTime.MinValue; lastCycleStartUtc = DateTime.MinValue; currentFileName = ""; currentZoneId = "";
+            }
+        }
+
+        void QuarantineStateFile(Exception cause)
+        {
+            string target = null;
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                target = statePath + ".corrupt-" + DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmssfff", CultureInfo.InvariantCulture) + (attempt == 0 ? "" : "-" + attempt.ToString(CultureInfo.InvariantCulture));
+                if (!File.Exists(target)) break;
+                target = null;
+            }
+            if (target == null) throw new IOException("找不到可用的隔离备份文件名");
+            File.Move(statePath, target);
+            CrashLogger.Write("分期状态文件已隔离备份：" + target, cause);
         }
 
         static DateTime FromTicks(long ticks) { return ticks == 0 ? DateTime.MinValue : new DateTime(ticks, DateTimeKind.Utc); }
-        void ThrowIfInvalid() { if (invalidState) throw new InvalidDataException("分期配置无效，已拒绝写入。"); }
 
-        void Save()
+        struct StateSnapshot
+        {
+            public int ActiveDays, PendingDays, Epoch;
+            public DateTime AnchorUtc, PendingBoundaryUtc, LastCycleStartUtc;
+            public string CurrentFileName, CurrentZoneId;
+        }
+        StateSnapshot TakeSnapshot() { return new StateSnapshot { ActiveDays = activeDays, PendingDays = pendingDays, Epoch = epoch, AnchorUtc = anchorUtc, PendingBoundaryUtc = pendingBoundaryUtc, LastCycleStartUtc = lastCycleStartUtc, CurrentFileName = currentFileName, CurrentZoneId = currentZoneId }; }
+        void RestoreSnapshot(StateSnapshot s) { activeDays = s.ActiveDays; pendingDays = s.PendingDays; epoch = s.Epoch; anchorUtc = s.AnchorUtc; pendingBoundaryUtc = s.PendingBoundaryUtc; lastCycleStartUtc = s.LastCycleStartUtc; currentFileName = s.CurrentFileName; currentZoneId = s.CurrentZoneId; }
+
+        // C3：返回 true 表示已持久化；false 表示有限重试后仍失败（降级：调用方决定回滚或保留内存态）。
+        // 杀软短暂锁文件等瞬态故障由 3 次尝试 + 退避吸收；持续故障只延缓周期切换，绝不停止数据记录。
+        bool TrySaveWithRetry()
+        {
+            Exception last = null;
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                if (attempt > 0) Thread.Sleep(attempt == 1 ? 80 : 200);
+                try { SaveOnce(); saveDegraded = false; saveDegradedError = ""; return true; }
+                catch (Exception ex) { last = ex; }
+            }
+            if (!saveDegraded) CrashLogger.Write("分期状态保存失败（已重试3次）；周期切换暂缓，数据仍写入当前库：" + statePath, last);
+            saveDegraded = true; saveDegradedError = last == null ? "未知错误" : last.Message;
+            return false;
+        }
+        void SaveOnce()
         {
             string temp = null;
+            Mutex stateMutex = new Mutex(false, @"Global\BmsSerialDemo.PartitionState." + MutexKey(statePath));
+            bool owns = false;
             try
             {
+                try { owns = stateMutex.WaitOne(TimeSpan.FromSeconds(2)); } catch (AbandonedMutexException) { owns = true; }
+                if (!owns) throw new IOException("分期状态文件正被其他进程写入");
                 string parent = Path.GetDirectoryName(statePath); if (String.IsNullOrEmpty(parent)) throw new InvalidOperationException("分期配置路径必须有父目录");
                 Directory.CreateDirectory(parent);
                 string body = Version + "\r\n" + deviceId + "\r\n" + source + "\r\n" + activeDays.ToString(CultureInfo.InvariantCulture) + "\r\n" + pendingDays.ToString(CultureInfo.InvariantCulture) + "\r\n" + Ticks(anchorUtc) + "\r\n" + Ticks(pendingBoundaryUtc) + "\r\n" + epoch.ToString(CultureInfo.InvariantCulture) + "\r\n" + Ticks(lastCycleStartUtc) + "\r\n" + currentFileName + "\r\n" + currentZoneId + "\r\n";
@@ -181,9 +246,14 @@ namespace BmsSerialDemo
                 using (StreamWriter writer = new StreamWriter(fs, new UTF8Encoding(false))) { writer.Write(body); writer.Flush(); fs.Flush(true); }
                 if (File.Exists(statePath)) File.Replace(temp, statePath, null); else File.Move(temp, statePath);
             }
-            catch (Exception ex) { invalidState = true; throw new InvalidOperationException("分期状态保存失败；本管理器已停止写库，需重新加载确认状态：" + statePath, ex); }
-            finally { if (!String.IsNullOrEmpty(temp) && File.Exists(temp)) File.Delete(temp); }
+            finally
+            {
+                if (owns) try { stateMutex.ReleaseMutex(); } catch { }
+                stateMutex.Dispose();
+                if (!String.IsNullOrEmpty(temp) && File.Exists(temp)) try { File.Delete(temp); } catch { }
+            }
         }
+        static string MutexKey(string path) { using (System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create()) { byte[] hash = md5.ComputeHash(Encoding.UTF8.GetBytes(Path.GetFullPath(path).ToLowerInvariant())); return BitConverter.ToString(hash).Replace("-", ""); } }
         void ValidateCurrentFileName(string value, int days, int fileEpoch)
         {
             if (Path.GetFileName(value) != value) throw new FormatException("当前库文件名包含路径成分");

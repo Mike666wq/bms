@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -61,6 +61,8 @@ namespace BmsSerialDemo
                 byte[] broken = (byte[])doc.Clone(); broken[broken.Length - 3] = (byte)'0'; Reject(broken, "错误 CHKSUM");
                 broken = (byte[])doc.Clone(); broken[9] = (byte)'5'; Reject(broken, "错误 LCHKSUM");
                 broken = (byte[])doc.Clone(); broken[15] = (byte)'G'; Reject(broken, "非法 ASCII");
+                broken = (byte[])doc.Clone(); broken[12] = (byte)'5'; bool oddLenRejected = false; try { Protocol.Decode(broken); } catch (FormatException) { oddLenRejected = true; }
+                Check(oddLenRejected, "奇数 LENID 报FormatException而非ArgumentException");
                 Reject(Encoding.ASCII.GetBytes("~21014600E002FD34\r"), "截断帧");
                 int frames = 0; Framer framer = new Framer { Complete = delegate(byte[] raw) { Protocol.Decode(raw); frames++; } };
                 framer.Feed(new byte[] { 0, 1, 2 }); foreach (byte value in doc) framer.Feed(new[] { value });
@@ -76,6 +78,9 @@ namespace BmsSerialDemo
                 int catalogChecks=MonthlyCatalog.RunSelfTests();for(int i=0;i<catalogChecks;i++)Check(true,"月库跨库分页/旧库/重复ID/UTC排序");
                 int partitionChecks=PartitionCycleTests.Run();for(int i=0;i<partitionChecks;i++)Check(true,"分期边界/重启/来源隔离/配置持久化");
                 int integrationChecks=MainForm.RunLocalIntegrationTests();for(int i=0;i<integrationChecks;i++)Check(true,"整轮切库/身份元数据/跨周期查询与导出");
+                Request pending44 = new Request { Command = 0x44, Pack = 1, Address = 1 };
+                Check(!MainForm.MatchesPending(Protocol.Decode(Simulator.Respond(1, 0x42, 1)), pending44), "C9迟到的42响应不被44请求接收");
+                Check(MainForm.MatchesPending(Protocol.Decode(Simulator.Respond(1, 0x44, 1)), pending44), "C9布局匹配的44响应正常接收");
                 int cloudChecks=CloudRealtimeService.RunSelfTests();for(int i=0;i<cloudChecks;i++)Check(true,"云端配置/DPAPI/假租约/有界上传");
                 File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "self-test-result.txt"), "PASS: " + assertions + " checks (including headless UI simulation)\r\n" + DateTime.Now.ToString("O"), Encoding.UTF8);
                 Environment.ExitCode = 0;

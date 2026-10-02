@@ -4,14 +4,15 @@ using System.Drawing;
 using System.IO;
 using System.IO.Ports;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Windows.Forms;
 
-[assembly: AssemblyVersion("1.2.1.0")]
-[assembly: AssemblyFileVersion("1.2.1.0")]
+[assembly: AssemblyVersion("1.2.2.0")]
+[assembly: AssemblyFileVersion("1.2.2.0")]
 
 namespace BmsSerialDemo
 {
@@ -35,7 +36,16 @@ namespace BmsSerialDemo
         {
             ConfigureApplicationStylesAndDpi();
             diagnosticMode = args.Length > 0 && (args[0] == "--self-test" || args[0] == "--test-ui-layout" || args[0] == "--preview-ui" || args[0] == "--capture-ui");
-            if(!diagnosticMode)AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e) { CrashLogger.Write("AppDomain unhandled exception; terminating=" + e.IsTerminating, e.ExceptionObject as Exception); };
+            // 诊断/预览模式同样注册全局异常钩子：仅记录日志，不弹窗、不改变退出行为，保证自动化运行可观察失败原因。
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e) { CrashLogger.Write("AppDomain unhandled exception; terminating=" + e.IsTerminating + (diagnosticMode ? "; mode=diagnostic" : ""), e.ExceptionObject as Exception); };
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += delegate(object sender, System.Threading.ThreadExceptionEventArgs e)
+            {
+                CrashLogger.Write("UI thread exception" + (diagnosticMode ? "; mode=diagnostic" : ""), e.Exception);
+                if(diagnosticMode)return;
+                try { MessageBox.Show("界面发生未处理错误，程序将安全退出。诊断日志已保存到 logs 目录。", "BMS 运行错误", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
+                Application.Exit();
+            };
             AppDomain.CurrentDomain.AssemblyResolve += delegate(object sender, ResolveEventArgs e) {
                 if (String.Equals(new AssemblyName(e.Name).Name,"System.Data.SQLite",StringComparison.OrdinalIgnoreCase)) {
                     string local = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lib", "System.Data.SQLite.dll");
@@ -44,8 +54,6 @@ namespace BmsSerialDemo
                 return null;
             };
             if (diagnosticMode) { if(args[0] == "--self-test") { SelfTest.Run(); return; } if(args[0] == "--test-ui-layout") { int checks=UiLayoutTests.Run();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"ui-layout-test-result.txt"),"PASS: "+checks+" UI layout checks (125%/150% simulated; Windows display scaling unchanged).\r\n",Encoding.UTF8);return; } int duration=6500;if(args.Length>2)Int32.TryParse(args[2],out duration);MainForm.CapturePreview(args.Length > 1 ? args[1] : "1360x920",Math.Max(6500,Math.Min(600000,duration))); return; }
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-            Application.ThreadException += delegate(object sender, System.Threading.ThreadExceptionEventArgs e) { CrashLogger.Write("UI thread exception", e.Exception); try { MessageBox.Show("界面发生未处理错误，程序将安全退出。诊断日志已保存到 logs 目录。", "BMS 运行错误", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { } Application.Exit(); };
             try { Application.Run(new MainForm()); }
             catch(Exception e) { CrashLogger.Write("Startup/main loop exception", e); try { MessageBox.Show("程序遇到未处理错误，将退出。诊断日志已保存到 logs 目录。", "BMS 运行错误", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { } }
         }
@@ -76,7 +84,7 @@ namespace BmsSerialDemo
     {
         public byte Command, Pack, Address;
         public long AcquisitionRound; public int? PeriodSeconds;
-        public TaskCompletionSource<Frame> Completion = new TaskCompletionSource<Frame>();
+        public TaskCompletionSource<Frame> Completion = new TaskCompletionSource<Frame>(TaskCreationOptions.RunContinuationsAsynchronously);
     }
     public sealed partial class MainForm : Form
     {
@@ -87,16 +95,16 @@ namespace BmsSerialDemo
         readonly StyledActionButton poll = new StyledActionButton { Text = "开始轮询", IconGlyph = "▶", Width = 144, Height = 32 };
         readonly ComboBox command = new ComboBox { Width = 210, DropDownStyle = ComboBoxStyle.DropDownList };
         readonly NumericUpDown historyAction = Number(0, 0, 3, 45);
-        readonly TextBox details = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Font = new Font("Consolas", 10), WordWrap = false };
-        readonly TextBox log = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Font = new Font("Consolas", 9), WordWrap = false };
+        readonly TextBox details = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Font = DetailsFont, WordWrap = false };
+        readonly TextBox log = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Font = LogFont, WordWrap = false };
         readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false, RowHeadersVisible = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill };
         readonly Label status = new Label { Dock = DockStyle.Bottom, Height = 28, Text = "未连接。默认模拟模式，可先验证显示和解析。" };
-        readonly Label connectionState = new Label { AutoSize = true, Text = "● 未连接", ForeColor = Color.Gray, Font = new Font("Microsoft YaHei UI", 9, FontStyle.Bold) };
+        readonly Label connectionState = new Label { AutoSize = true, Text = "● 未连接", ForeColor = Color.Gray, Font = BoldBodyFont };
         readonly Label[] metrics = new Label[7];
         readonly Label spread = new Label { AutoSize = true, ForeColor = Color.DarkSlateGray };
         readonly FlowLayoutPanel cellCards = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, WrapContents = true, Padding = new Padding(4) };
         readonly FlowLayoutPanel tempCards = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, WrapContents = true, Padding = new Padding(4) };
-        readonly ListBox alarmList = new ListBox { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false, Font = new Font("Microsoft YaHei UI", 9) };
+        readonly ListBox alarmList = new ListBox { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false, Font = BodyFont };
         readonly FlowLayoutPanel runtimeStates = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = true, Padding = new Padding(2) };
         readonly TrendControl trend = new TrendControl();
         readonly List<Panel> cellCardCache = new List<Panel>();
@@ -113,6 +121,9 @@ namespace BmsSerialDemo
         readonly Font cellValueFont = new Font("Microsoft YaHei UI", 9, FontStyle.Bold);
         readonly Font tempTagFont = new Font("Microsoft YaHei UI", 8);
         readonly Font tempValueFont = new Font("Microsoft YaHei UI", 11, FontStyle.Bold);
+        // C32：静态共享字体——窗体/预览反复重建不再累积 GDI 句柄；控件 Dispose 不释放 Font，共享安全。
+        static readonly Font DetailsFont = new Font("Consolas", 10), LogFont = new Font("Consolas", 9);
+        static readonly Font BodyFont = new Font("Microsoft YaHei UI", 9), BoldBodyFont = new Font("Microsoft YaHei UI", 9, FontStyle.Bold), SectionFont = new Font("Microsoft YaHei UI", 10, FontStyle.Bold), BrandFont = new Font("Microsoft YaHei UI", 12, FontStyle.Bold), PageTitleFont = new Font("Microsoft YaHei UI", 15, FontStyle.Bold);
         readonly Dictionary<int, AlarmSnapshot> alarmSnapshotByPack = new Dictionary<int, AlarmSnapshot>();
         readonly Dictionary<int, RealtimeSnapshot> latestSnapshots = new Dictionary<int, RealtimeSnapshot>();
         readonly Dictionary<string, SampleStore> stores = new Dictionary<string, SampleStore>(StringComparer.OrdinalIgnoreCase);
@@ -125,6 +136,9 @@ namespace BmsSerialDemo
         CloudPage cloudPage;
         readonly string cloudSettingsPath=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"settings","cloud-connection.txt");
         bool previewMode;
+        // C2：诊断截图/预览使用隔离数据根（临时目录）时置位——禁止把模拟快照发布到真实云端。
+        readonly bool diagnosticIsolation;
+        readonly List<Task> pendingStoreDrains = new List<Task>();
         string displaySource;
         string recordShutdownError;
         Panel cellsSection;
@@ -168,9 +182,10 @@ namespace BmsSerialDemo
         public MainForm() : this(null,null) { }
         internal MainForm(string testDataRoot,string testPeriodSettingsPath)
         {
-            if(!String.IsNullOrEmpty(testDataRoot))dataRoot=testDataRoot;if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.1 UI 预览"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
-            Font = new Font("Microsoft YaHei UI", 9); ForeColor = Color.FromArgb(40, 56, 66);
+            if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
+            if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.2 UI 预览"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             deviceId=LoadDeviceId();
             InitializePartitionManagers();
             monthlyCatalog=new MonthlyCatalog(dataRoot,deviceId);
@@ -180,7 +195,7 @@ namespace BmsSerialDemo
             Add(bar, "串口", ports); Button refresh = new Button { Text = "刷新", Width = 55, Height = 26, FlatStyle = FlatStyle.Flat, BackColor = Color.White }; bar.Controls.Add(refresh);
             Add(bar, "波特率", baud); Add(bar, "地址", address); Add(bar, "Pack", pack); bar.Controls.Add(all); bar.Controls.Add(simulate);
             Panel masthead = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(28, 57, 91) };
-            Label brand = new Label { Text = "BMS  /  实时监控  ·  1.2.1 UI 预览", AutoSize = true, Font = new Font("Microsoft YaHei UI", 12, FontStyle.Bold), ForeColor = Color.White, Location = new Point(18, 9) };
+            Label brand = new Label { Text = "BMS  /  实时监控  ·  1.2.2 UI 预览", AutoSize = true, Font = BrandFont, ForeColor = Color.White, Location = new Point(18, 9) };
             connect.Anchor = AnchorStyles.Top | AnchorStyles.Right; connect.BackColor=Color.FromArgb(65,111,232);connect.ForeColor=Color.White;masthead.Controls.Add(connect); masthead.Controls.Add(brand);
             masthead.Resize += delegate { connect.Location = new Point(masthead.ClientSize.Width - connect.Width - 16, 7); };
             TableLayoutPanel shell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.FromArgb(239, 244, 249) };
@@ -211,7 +226,7 @@ namespace BmsSerialDemo
             FlowLayoutPanel diagBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize=true, AutoSizeMode=AutoSizeMode.GrowAndShrink, Padding = new Padding(6), WrapContents = true, AutoScroll=true, BackColor=Color.White };
             Add(diagBar, "超时 ms", timeout); diagBar.Controls.Add(poll); diagBar.Controls.Add(save);
             Add(diagBar, "单次读取", command); Add(diagBar, "历史动作", historyAction); diagBar.Controls.Add(read); diagBar.Controls.Add(clear);
-            GroupBox diagControls=new GroupBox{Text="读取控制",Dock=DockStyle.Top,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,Padding=new Padding(8),BackColor=Color.White,ForeColor=Color.FromArgb(34,70,108),Font=new Font("Microsoft YaHei UI",9,FontStyle.Bold)};diagControls.Controls.Add(diagBar);
+            GroupBox diagControls=new GroupBox{Text="读取控制",Dock=DockStyle.Top,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,Padding=new Padding(8),BackColor=Color.White,ForeColor=Color.FromArgb(34,70,108),Font=BoldBodyFont};diagControls.Controls.Add(diagBar);
             SplitContainer outer = new SplitContainer { Size = new Size(1200, 600), Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 310, BackColor = UiTheme.Canvas, BorderStyle=BorderStyle.None, SplitterWidth=6 };
             SplitContainer inner = new SplitContainer { Size = new Size(1200, 310), Dock = DockStyle.Fill, SplitterDistance = 600, BackColor = UiTheme.Canvas, BorderStyle=BorderStyle.None, SplitterWidth=6 };
             GroupBox liveGroup=new GroupBox{Text="实时响应概览",Dock=DockStyle.Fill,BackColor=Color.White,ForeColor=Color.FromArgb(34,70,108),Font=new Font("Microsoft YaHei UI",9,FontStyle.Bold),Padding=new Padding(8)};liveGroup.Controls.Add(grid);
@@ -230,15 +245,42 @@ namespace BmsSerialDemo
             for (int pi = 1; pi <= 16; pi++) viewPack.Items.Add("Pack " + pi); viewPack.SelectedIndex = 0;
             viewPack.SelectedIndexChanged += delegate { trend.SelectedPack = viewPack.SelectedIndex + 1; RenderPack(); RenderAlarm(); };
             framer.Complete = ReceiveFrame; framer.Invalid = delegate(string error, byte[] raw) { Post(delegate { Log("帧错误 " + error + " HEX=" + Protocol.Hex(raw)); }); };
-            FormClosing += delegate { closing = true; Disconnect();DisposeCloudPublisher(); List<string> errors=new List<string>();if(!String.IsNullOrEmpty(recordShutdownError))errors.Add(recordShutdownError);foreach (SampleStore db in stores.Values) try { db.Dispose(); } catch (Exception e) { errors.Add("本地记录库关闭失败，待写数据可能未完整落盘："+e.Message); CrashLogger.Write("safe shutdown storage exception",e); } stores.Clear(); activeStore=null;if(errors.Count>0&&!previewMode)MessageBox.Show(this,String.Join("\r\n",errors),"关闭记录错误",MessageBoxButtons.OK,MessageBoxIcon.Error); };
+            FormClosing += delegate { closing = true; Disconnect();DisposeCloudPublisher(); Task[] pendingDrains;lock(pendingStoreDrains)pendingDrains=pendingStoreDrains.ToArray();if(pendingDrains.Length>0)try{Task.WaitAll(pendingDrains,15000);}catch{} List<string> errors=new List<string>();if(!String.IsNullOrEmpty(recordShutdownError))errors.Add(recordShutdownError);foreach (SampleStore db in stores.Values) try { db.Dispose(); } catch (Exception e) { errors.Add("本地记录库关闭失败，待写数据可能未完整落盘："+e.Message); CrashLogger.Write("safe shutdown storage exception",e); } stores.Clear(); activeStore=null;if(errors.Count>0&&!previewMode)MessageBox.Show(this,String.Join("\r\n",errors),"关闭记录错误",MessageBoxButtons.OK,MessageBoxIcon.Error); };
             RefreshPorts(); UiTheme.Apply(this);
         }
         string LoadDeviceId()
         {
-            string path=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"settings","device-id.txt");
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-            if(File.Exists(path)){string value=File.ReadAllText(path).Trim();if(value.Length>=16&&value.Length<=64)return value;}
-            string id=Guid.NewGuid().ToString("N");File.WriteAllText(path,id,new UTF8Encoding(false));return id;
+            // 只读安装目录或受限账户下不得抛异常阻断启动：主路径读取→备用路径读取→新生成并尽力持久化→内存回退。
+            // 读取校验与 PartitionCycleManager 的要求一致（16-64 位字母/数字/下划线/连字符），避免无效内容在后续构造时才失败。
+            string primary=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"settings","device-id.txt");
+            string fallback=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BmsSerialDemo","settings","device-id.txt");
+            string value;
+            if(TryReadDeviceId(primary,out value))return value;
+            if(TryReadDeviceId(fallback,out value))return value;
+            string id=Guid.NewGuid().ToString("N");
+            if(TryWriteDeviceId(primary,id))return id;
+            if(TryWriteDeviceId(fallback,id))return id;
+            CrashLogger.Write("设备标识无法持久化，本次运行使用内存标识（重启后会生成新标识）",new IOException(primary+" 与 "+fallback+" 均不可写"));
+            return id;
+        }
+        static readonly Regex DeviceIdPattern=new Regex("^[A-Za-z0-9_-]{16,64}$",RegexOptions.CultureInvariant);
+        static bool TryReadDeviceId(string path,out string value)
+        {
+            value=null;
+            try
+            {
+                if(!File.Exists(path))return false;
+                string candidate=File.ReadAllText(path).Trim();
+                if(DeviceIdPattern.IsMatch(candidate)){value=candidate;return true;}
+                CrashLogger.Write("设备标识文件内容无效，已忽略："+path,new FormatException("device-id 必须为 16-64 位字母/数字/下划线/连字符"));
+            }
+            catch(Exception e){CrashLogger.Write("设备标识文件读取失败："+path,e);}
+            return false;
+        }
+        static bool TryWriteDeviceId(string path,string id)
+        {
+            try{Directory.CreateDirectory(Path.GetDirectoryName(path));File.WriteAllText(path,id,new UTF8Encoding(false));return true;}
+            catch(Exception e){CrashLogger.Write("设备标识文件写入失败："+path,e);return false;}
         }
         void LoadPeriodSettings(bool allowLegacyImport)
         {
@@ -247,11 +289,11 @@ namespace BmsSerialDemo
         }
         string MonthDatabasePath(string source,DateTime utc)
         {
-            return partitionManagers[source].DatabasePath(utc);
+            return GetPartitionManager(source).DatabasePath(utc);
         }
         SampleStore ActivateMonthlyStore(string source,DateTime utc,long round)
         {
-            PartitionDescriptor descriptor=partitionManagers[source].Describe(utc);
+            PartitionDescriptor descriptor=GetPartitionManager(source).Describe(utc);
             if(round>0)roundPartitions[round]=descriptor;
             return ActivateStorePath(source,descriptor.DatabasePath,round);
         }
@@ -260,9 +302,16 @@ namespace BmsSerialDemo
             SampleStore store;
             if(activeStore!=null&&!String.Equals(activeStore.DatabasePath,path,StringComparison.OrdinalIgnoreCase))
             {
-                SampleStore old=activeStore;
-                try { old.StopSessionAsync().GetAwaiter().GetResult(); }
-                finally { try { old.Dispose(); } finally { stores.Remove(old.Source);activeStore=null; } }
+                SampleStore old=activeStore;stores.Remove(old.Source);activeStore=null;
+                // C4：旧库排空/关闭移出 UI 线程——新周期样本立即写入新库（不同路径、各自独立 writer）；
+                // 排空超时只记录诊断并提示，绝不等同写失败、绝不触发 StopForRecordingFailure。
+                Task drain=Task.Run(delegate{
+                    Exception drainError=null;
+                    try{old.StopSessionAsync().GetAwaiter().GetResult();}catch(Exception e){drainError=e;}
+                    try{old.Dispose();}catch(Exception e){if(drainError==null)drainError=e;}
+                    if(drainError!=null){CrashLogger.Write("旧记录库收尾失败（新库记录未中断）",drainError);Post(delegate{Notice("上一周期记录库收尾失败（新库记录不受影响）："+drainError.Message);});}
+                });
+                lock(pendingStoreDrains)pendingStoreDrains.Add(drain);
             }
             if(!stores.TryGetValue(source,out store))
             {
@@ -285,8 +334,8 @@ namespace BmsSerialDemo
             TableLayoutPanel layout = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, RowCount = 4, Padding = new Padding(12, 9, 12, 8), Margin=Padding.Empty, BackColor = Color.FromArgb(239, 244, 249) };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 88)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,250)); layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
             viewport.Controls.Add(layout);page.Controls.Add(viewport);
-            FlowLayoutPanel head = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = true, BackColor = Color.Transparent, Padding = new Padding(1, 1, 1, 1) };
-            head.Controls.Add(new Label { Text = "实时总览", Font = new Font("Microsoft YaHei UI", 15, FontStyle.Bold), AutoSize = true, ForeColor = Color.FromArgb(25, 52, 82), Margin = new Padding(0, 1, 20, 0) });
+            FlowLayoutPanel head = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = false, BackColor = Color.Transparent, Padding = new Padding(1, 1, 1, 1) };
+            head.Controls.Add(new Label { Text = "实时总览", Font = PageTitleFont, AutoSize = true, ForeColor = Color.FromArgb(25, 52, 82), Margin = new Padding(0, 1, 20, 0) });
             livePollButton = new StyledActionButton { Text = "开始实时采集", IconGlyph="▶", Width = 166, Height = 34, BackColor = Color.FromArgb(65,111,232), ForeColor = Color.White, Margin = new Padding(0, 0, 16, 0) };
             livePollButton.Click += delegate { TogglePolling(); };
             head.Controls.Add(livePollButton); head.Controls.Add(new Label{Text="采集/记录间隔 s",AutoSize=true,ForeColor=Color.FromArgb(89,108,130),Margin=new Padding(4,7,4,0)});head.Controls.Add(new RoundedInputHost(period){Width=100,Height=36,Margin=new Padding(2,0,7,0)}); viewPack.Width = 105; head.Controls.Add(new Label { Text = "显示 Pack", AutoSize = true, ForeColor = Color.FromArgb(89, 108, 130), Margin = new Padding(0, 7, 5, 0) }); head.Controls.Add(new RoundedInputHost(viewPack){Width=120,Height=36,Margin=new Padding(0,0,2,0)});
@@ -340,7 +389,7 @@ namespace BmsSerialDemo
             Panel panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(9), Margin = new Padding(4) };
             TableLayoutPanel stack = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1, BackColor = Color.White };
             stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 25)); stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            Label label = new Label { Dock = DockStyle.Fill, Text = title, Font = new Font("Microsoft YaHei UI", 10, FontStyle.Bold), ForeColor = Color.FromArgb(29, 67, 107), TextAlign = ContentAlignment.MiddleLeft };
+            Label label = new Label { Dock = DockStyle.Fill, Text = title, Font = SectionFont, ForeColor = Color.FromArgb(29, 67, 107), TextAlign = ContentAlignment.MiddleLeft };
             content.Dock = DockStyle.Fill; stack.Controls.Add(label, 0, 0); stack.Controls.Add(content, 0, 1); panel.Controls.Add(stack); return panel;
         }
         Panel MetricCard(string title, out Label value)
@@ -348,7 +397,7 @@ namespace BmsSerialDemo
             Panel panel = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Margin = new Padding(3, 0, 4, 0), Padding = new Padding(9, 6, 7, 4) };
             TableLayoutPanel stack = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 }; stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 21)); stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             stack.Controls.Add(new Label { Dock = DockStyle.Fill, Text = title, ForeColor = Color.FromArgb(94, 116, 140), TextAlign = ContentAlignment.MiddleLeft }, 0, 0);
-            value = new Label { Dock = DockStyle.Fill, Text = "—", Font = new Font("Microsoft YaHei UI", 15, FontStyle.Bold), ForeColor = Color.FromArgb(36, 105, 171), TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = false, AutoSize = false };
+            value = new Label { Dock = DockStyle.Fill, Text = "—", Font = PageTitleFont, ForeColor = Color.FromArgb(36, 105, 171), TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = false, AutoSize = false };
             stack.Controls.Add(value, 0, 1); panel.Controls.Add(stack); return panel;
         }
         internal static void CapturePreview(string requestedSize,int duration=6500)
@@ -357,10 +406,12 @@ namespace BmsSerialDemo
             string[] dimensions = requestedSize.Split('x'); int width = 1360, height = 920;
             if (dimensions.Length == 2) { Int32.TryParse(dimensions[0], out width); Int32.TryParse(dimensions[1], out height); }
             width = Math.Max(1050, width); height = Math.Max(720, height);
-            using (MainForm form = new MainForm())
+            string previewBase=Environment.GetEnvironmentVariable("BMS_PREVIEW_ROOT");if(String.IsNullOrWhiteSpace(previewBase))previewBase=Path.Combine(Path.GetTempPath(),"BmsSerialDemo");
+            string isolatedRoot=Path.Combine(previewBase,"preview-"+Guid.NewGuid().ToString("N").Substring(0,12));
+            using (MainForm form = new MainForm(isolatedRoot,Path.Combine(isolatedRoot,"settings","recording-period.txt")))
             {
-                // Capture runs from the isolated development directory. Persist a small simulated sample set there
-                // so the storage page demonstrates real database discovery and query results, never lab data.
+                // C2：截图/预览在临时隔离根中运行——模拟样本、分期状态、云端配置、采集间隔设置
+                // 全部落在隔离目录，正式数据库与真实云端不受任何污染；结束后整目录清理。
                 form.previewMode = false; form.save.Checked = false; form.ShowInTaskbar = false; form.Opacity = 0; form.WindowState = FormWindowState.Normal; form.Size = new Size(width, height);
                 form.Shown += async delegate
                 {
@@ -376,6 +427,7 @@ namespace BmsSerialDemo
                 };
                 Application.Run(form);
             }
+            try{if(Directory.Exists(isolatedRoot))Directory.Delete(isolatedRoot,true);}catch(Exception cleanupFailure){CrashLogger.Write("preview isolated root cleanup",cleanupFailure);}
         }
         internal static void Add(FlowLayoutPanel panel, string text, Control control)
         {
@@ -442,7 +494,7 @@ namespace BmsSerialDemo
                 if (!String.Equals(activeStore == null ? null : activeStore.Source, chosenSource, StringComparison.OrdinalIgnoreCase)) ClearDisplayedSource();
                 connected = true; generation++; connect.Text = "断开"; simulate.Enabled = ports.Enabled = baud.Enabled = address.Enabled = false; freshnessTimer.Start();
                 if(storagePage!=null)storagePage.SetActiveSource(chosenSource);
-                if (save.Checked) OpenLog();
+                if (save.Checked) try { OpenLog(); } catch (Exception logFailure) { save.Checked = false; CrashLogger.Write("raw log unavailable at connect", logFailure); Notice("原始日志不可用，已取消勾选；连接继续：" + logFailure.Message); }
                 Notice(simulatedConnection ? "已连接模拟设备；开始实时采集后按设置的周期记录。" : "已连接 " + ports.Text + "，8N1；开始实时采集后记录。请关闭占用同一串口的旧 BMS Tool。");
             }
             catch (Exception e) { Disconnect(); Notice("连接失败：" + e.Message); }
@@ -466,9 +518,23 @@ namespace BmsSerialDemo
         static string AppendShutdownError(string existing,string addition){return String.IsNullOrEmpty(existing)?addition:existing+"\r\n"+addition;}
         void OpenLog()
         {
-            string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs"); Directory.CreateDirectory(dir);
-            string path = Path.Combine(dir, DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".log");
-            writer = new StreamWriter(path, false, new UTF8Encoding(true)) { AutoFlush = true }; Log("日志文件：" + path);
+            // C8：安装目录不可写时回退到用户目录（与 CrashLogger 一致）；两处都失败才抛出，由调用方决定降级。
+            string primaryDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
+            string fallbackDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BmsSerialDemo", "logs");
+            Exception firstFailure = null;
+            foreach (string dir in new[] { primaryDir, fallbackDir })
+            {
+                try
+                {
+                    Directory.CreateDirectory(dir);
+                    string path = Path.Combine(dir, DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".log");
+                    writer = new StreamWriter(path, false, new UTF8Encoding(true)) { AutoFlush = true };
+                    Log("日志文件：" + path + (String.Equals(dir, fallbackDir, StringComparison.OrdinalIgnoreCase) && !String.Equals(primaryDir, fallbackDir, StringComparison.OrdinalIgnoreCase) ? "（安装目录不可写，已改用用户目录）" : ""));
+                    return;
+                }
+                catch (Exception e) { if (firstFailure == null) firstFailure = e; }
+            }
+            throw new IOException("原始日志目录不可用：" + (firstFailure == null ? "未知错误" : firstFailure.Message), firstFailure);
         }
         void Log(string text)
         {
@@ -498,10 +564,19 @@ namespace BmsSerialDemo
             {
                 Frame f = Protocol.Decode(raw);
                 Post(delegate { Log("RX 完整帧 ASCII=" + Encoding.ASCII.GetString(raw).Replace("\r", "<CR>")); });
-                if (pending != null && f.Address == pending.Address) pending.Completion.TrySetResult(f);
-                else Post(delegate { Log("未匹配当前请求的响应，保留原始帧"); });
+                if (pending != null && MatchesPending(f, pending)) pending.Completion.TrySetResult(f);
+                else Post(delegate { Request waiting = pending; Log("未匹配当前请求的响应（地址/布局不符，疑似上一命令的迟到帧）ADR=" + f.Address + " RTN=0x" + f.ReturnCode.ToString("X2") + (waiting == null ? "，当前无待答请求" : "，待答 CMD=" + waiting.Command.ToString("X2") + " ADR=" + waiting.Address) + "，已保留原始帧"); });
             }
             catch (Exception e) { Post(delegate { Log("无效响应：" + e.Message + " HEX=" + Protocol.Hex(raw)); }); }
+        }
+        // 响应帧 CID2 是 RTN 而非命令回显（协议文档示例 ~52 01 46 00… 与 Simulator.Respond 均如此），
+        // 无法按命令字匹配；对 42/44 轮询命令改用布局校验识别迟到响应，避免实时帧被当作告警解析入库（C9）。
+        internal static bool MatchesPending(Frame f, Request req)
+        {
+            if (f.Address != req.Address) return false;
+            if (req.Command == 0x42) { try { string layout; DataParser.Realtime(f.Info, req.Pack, out layout); return true; } catch (FormatException) { return false; } catch (ArgumentException) { return false; } }
+            if (req.Command == 0x44) { try { DataParser.Alarm(f.Info, req.Pack); return true; } catch (FormatException) { return false; } catch (ArgumentException) { return false; } }
+            return true;
         }
         byte SelectedPack { get { return all.Checked ? (byte)255 : (byte)pack.Value; } }
         async Task Send(byte cmd, byte p, byte[] info)
@@ -575,7 +650,7 @@ namespace BmsSerialDemo
                     s.AppendLine("温度 ℃：" + string.Join(", ", displayData.Temperatures));
                     s.AppendLine("均衡原始位1-16=0x" + displayData.BalanceLow.ToString("X4") + "，17-32=0x" + displayData.BalanceHigh.ToString("X4") + "（含义待实机确认） 湿度=" + displayData.Humidity + "%");
                     if(connected&&!previewMode&&acquisitionRound>0&&recordingFailure==null)try{string routed; if(roundDatabase.TryGetValue(acquisitionRound,out routed))ActivateStorePath(snapshot.Source,routed,acquisitionRound);else ActivateMonthlyStore(snapshot.Source,snapshot.ReceivedUtc,acquisitionRound);if(activeStore==null||!activeStore.TryEnqueue(snapshot))throw new IOException(activeStore==null?"没有活动数据库":activeStore.GetStatus().LastError);}catch(Exception ex){StopForRecordingFailure(ex);}
-                    publisher.Publish(snapshot);
+                    if(!diagnosticIsolation)publisher.Publish(snapshot);
                 }
                 List<PackData> cachedView=new List<PackData>();foreach(RealtimeSnapshot cached in latestSnapshots.Values)cachedView.Add(cached.ToPackData());latestPacks=cachedView.ToArray();
                 details.Text = s + raw;

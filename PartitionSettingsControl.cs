@@ -46,7 +46,18 @@ namespace BmsSerialDemo
             catch (Exception ex) { summary.Text = "分期状态暂不可用：" + ex.Message; }
         }
 
-        int SelectedDays { get { return preset.SelectedIndex == 0 ? 7 : preset.SelectedIndex == 1 ? 15 : preset.SelectedIndex == 2 ? 30 : (int)custom.Value; } }
+        // C11：回读管理器当前周期，避免设置区恒显“30 天”与摘要自相矛盾、误点静默改期。
+        // 预设显示“当前生效”天数；已排期变更由 PartitionCycleManager.Summary 的“下一切换…起改为 N 天”呈现。
+        public void SetCurrentDays(int activeDays, int pendingDays)
+        {
+            if (activeDays == 7) preset.SelectedIndex = 0;
+            else if (activeDays == 15) preset.SelectedIndex = 1;
+            else if (activeDays == 30) preset.SelectedIndex = 2;
+            else { preset.SelectedIndex = 3; try { custom.Value = Math.Min(3650, Math.Max(1, activeDays)); } catch { } }
+            custom.Enabled = preset.SelectedIndex == 3;
+        }
+
+        internal int SelectedDays { get { return preset.SelectedIndex == 0 ? 7 : preset.SelectedIndex == 1 ? 15 : preset.SelectedIndex == 2 ? 30 : (int)custom.Value; } }
         void Raise(bool applyImmediately)
         {
             EventHandler<PartitionSettingsRequestedEventArgs> handler = Requested;

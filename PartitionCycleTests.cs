@@ -29,7 +29,10 @@ namespace BmsSerialDemo
                 Check(m.Describe(start.AddDays(29)).DatabasePath == first.DatabasePath, "周期内路径稳定");
                 Check(m.Summary(start.AddDays(1)).Contains(start.AddDays(30).ToLocalTime().ToString("yyyy-MM-dd HH:mm")), "未设置pending时Summary展示下一边界");
                 PartitionSettingsControl control = new PartitionSettingsControl(delegate { return m.Summary(start.AddDays(1)); });
-                Check(control.SummaryText.Contains("下一切换"), "设置控件展示manager摘要"); control.Dispose();
+                Check(control.SummaryText.Contains("下一切换"), "设置控件展示manager摘要");
+                control.SetCurrentDays(7, 0); Check(control.SelectedDays == 7, "C11设置控件回读7天预设而非恒显30天");
+                control.SetCurrentDays(45, 0); Check(control.SelectedDays == 45, "C11设置控件回读非预设天数切自定义并填值");
+                control.SetCurrentDays(30, 15); Check(control.SelectedDays == 30, "C11设置控件回读当前生效天数（排期由摘要呈现）"); control.Dispose();
                 PartitionCycleManager restarted = new PartitionCycleManager(data, "stable-device-id", "serial", serialState);
                 Check(restarted.Describe(start.AddDays(1)).DatabasePath == first.DatabasePath, "重启恢复当前周期");
 
@@ -76,20 +79,32 @@ namespace BmsSerialDemo
                 Check(loaded.ActiveDays == 7 && loaded.Describe(secondBoundary.AddDays(104)).Days == 7, "连续切换后的周期设置跨重启保持");
 
                 string corrupt = Path.Combine(settings, "corrupt.txt"); Directory.CreateDirectory(settings); File.WriteAllText(corrupt, "partial damaged state", new UTF8Encoding(false));
-                string before = File.ReadAllText(corrupt); bool rejected = false;
-                try { new PartitionCycleManager(data, "stable-device-id", "serial", corrupt); } catch (InvalidDataException) { rejected = true; }
-                Check(rejected && File.ReadAllText(corrupt) == before, "损坏配置显式拒绝且不静默覆盖");
-                bool mismatch = false; try { new PartitionCycleManager(data, "another-device-id", "serial", serialState); } catch (InvalidDataException) { mismatch = true; }
-                Check(mismatch, "设备配置身份不匹配时拒绝续写");
+                string before = File.ReadAllText(corrupt);
+                PartitionCycleManager recovered = new PartitionCycleManager(data, "stable-device-id", "serial", corrupt);
+                Check(!String.IsNullOrEmpty(recovered.StartupNotice) && recovered.ActiveDays == 30 && recovered.AnchorUtc == DateTime.MinValue, "损坏配置隔离重置为默认周期并给出启动提示");
+                string[] quarantined = Directory.GetFiles(settings, "corrupt.txt.corrupt-*");
+                Check(!File.Exists(corrupt) && quarantined.Length == 1 && File.ReadAllText(quarantined[0]) == before, "损坏配置原始字节保留在.corrupt-隔离备份中且原路径已让位");
+                PartitionDescriptor recoveredCycle = recovered.Describe(start);
+                Check(recoveredCycle.Days == 30 && recoveredCycle.StartUtc == start, "隔离重置后可直接开始新周期写库");
                 string traversal = Path.Combine(settings, "traversal.txt"); string[] tampered = File.ReadAllLines(serialState); tampered[9] = "..\\evil.db"; File.WriteAllLines(traversal, tampered, new UTF8Encoding(false));
-                bool traversalRejected = false; try { new PartitionCycleManager(data, "stable-device-id", "serial", traversal); } catch (InvalidDataException) { traversalRejected = true; }
-                Check(traversalRejected, "配置文件名路径穿越校验");
+                string traversalBefore = File.ReadAllText(traversal);
+                PartitionCycleManager traversalRecovered = new PartitionCycleManager(data, "stable-device-id", "serial", traversal);
+                Check(!String.IsNullOrEmpty(traversalRecovered.StartupNotice) && !File.Exists(traversal) && Directory.GetFiles(settings, "traversal.txt.corrupt-*").Length == 1 && File.ReadAllText(Directory.GetFiles(settings, "traversal.txt.corrupt-*")[0]) == traversalBefore, "路径穿越配置同样隔离重置且保留原始内容");
+                PartitionCycleManager mismatch = new PartitionCycleManager(data, "another-device-id", "serial", serialState);
+                Check(!String.IsNullOrEmpty(mismatch.StartupNotice) && !File.Exists(serialState) && Directory.GetFiles(settings, "serial.txt.corrupt-*").Length == 1, "设备身份不匹配时隔离重置，不静默续写也不崩溃");
 
                 string blockedPath = Path.Combine(settings, "blocked-state"); Directory.CreateDirectory(blockedPath);
                 PartitionCycleManager blocked = new PartitionCycleManager(data, "stable-device-id", "serial", blockedPath);
-                bool saveFailed = false; try { blocked.Describe(start); } catch (InvalidOperationException) { saveFailed = true; }
-                bool rejectedAfterFailure = false; try { blocked.Describe(start.AddDays(1)); } catch (InvalidDataException) { rejectedAfterFailure = true; }
-                Check(saveFailed && rejectedAfterFailure && Directory.Exists(blockedPath), "原子保存失败后本实例持续fail-closed");
+                PartitionDescriptor blockedFirst = blocked.Describe(start);
+                Check(blockedFirst.Days == 30 && blocked.SaveDegraded && !String.IsNullOrEmpty(blocked.SaveDegradedError), "C3保存失败降级：首期仍返回可写描述符并标记降级");
+                Check(blocked.Describe(start.AddDays(1)).DatabasePath == blockedFirst.DatabasePath && blocked.Summary(start.AddDays(1)).Contains("数据仍写入当前库"), "C3降级期间继续写当前库且Summary区分提示");
+                PartitionDescriptor blockedRollover = blocked.Describe(start.AddDays(31));
+                Check(blockedRollover.DatabasePath == blockedFirst.DatabasePath && blockedRollover.StartUtc == start, "C3降级期间周期切换暂缓，不阻断记录");
+                bool configureFailed = false; try { blocked.Configure(7, false, start.AddDays(31)); } catch (InvalidOperationException e) { configureFailed = e.Message.Contains("周期设置未变更"); }
+                Check(configureFailed && blocked.PendingDays == 0, "C3降级期间设置变更回滚并报错，不损坏内存态");
+                Directory.Delete(blockedPath);
+                PartitionDescriptor recoveredRollover = blocked.Describe(start.AddDays(31));
+                Check(!blocked.SaveDegraded && recoveredRollover.DatabasePath != blockedFirst.DatabasePath && recoveredRollover.StartUtc == start.AddDays(30), "C3障碍消除后自动完成持久化与周期切换");
                 return checks;
             }
             finally { string checkedRoot=Path.GetFullPath(root), baseRoot=Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar; if(checkedRoot.StartsWith(baseRoot,StringComparison.OrdinalIgnoreCase)&&Directory.Exists(checkedRoot))Directory.Delete(checkedRoot,true); }

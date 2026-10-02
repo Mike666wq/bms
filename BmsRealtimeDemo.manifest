@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity version="1.2.1.0" processorArchitecture="*" name="BmsRealtimeDemo" type="win32" />
-  <description>BMS Realtime Monitor 1.2.1 UI Preview</description>
+  <assemblyIdentity version="1.2.2.0" processorArchitecture="*" name="BmsRealtimeDemo" type="win32" />
+  <description>BMS Realtime Monitor 1.2.2 UI Preview</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
@@ -9,4 +9,11 @@
       </requestedPrivileges>
     </security>
   </trustInfo>
+  <!-- U7：显式声明系统级 DPI 感知（与代码 SetProcessDpiAwareness(1) 一致）；
+       多显示器不同缩放 / 运行中改缩放需重启生效，限制说明见 README。 -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+    </windowsSettings>
+  </application>
 </assembly>

@@ -2,6 +2,7 @@ using System;
 using System.Data.SQLite;
 using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace BmsSerialDemo
 {
@@ -29,6 +30,8 @@ namespace BmsSerialDemo
                 if(first==second||form.partitionManagers["simulation"].ActiveDays!=7)throw new Exception("下一轮未进入7天新库。");checks++;
                 form.Disconnect();
                 foreach(SampleStore db in form.stores.Values)db.Dispose();form.stores.Clear();form.activeStore=null;
+                // C4：旧库排空已移出 UI 线程，断言前等待后台收尾完成（语义等价于旧的同步排空）。
+                Task[] drains;lock(form.pendingStoreDrains)drains=form.pendingStoreDrains.ToArray();if(drains.Length>0)Task.WaitAll(drains,20000);
                 foreach(string db in new[]{first,second})using(SQLiteConnection c=new SQLiteConnection("Data Source="+db+";Version=3;Read Only=True;"))
                 {
                     c.Open();using(SQLiteCommand q=new SQLiteCommand("SELECT (SELECT COUNT(*) FROM samples)+(SELECT COUNT(*) FROM alarm_observations)",c))
@@ -40,6 +43,21 @@ namespace BmsSerialDemo
                 if(catalog.QueryPage("simulation",DateTime.UtcNow.AddHours(-1),DateTime.UtcNow.AddHours(1),0,null,200).Count!=2)throw new Exception("跨周期查询遗漏记录。");checks++;
                 string exports=Path.Combine(root,"out");XlsxExportResult x=catalog.ExportXlsxAsync("simulation",DateTime.UtcNow.AddHours(-1),DateTime.UtcNow.AddHours(1),0,exports,null,CancellationToken.None).GetAwaiter().GetResult();
                 if(x.SampleRows!=2||x.AlarmRows!=2)throw new Exception("跨周期Excel导出计数不正确。");checks++;
+                using(SampleStore readOnlyStore=new SampleStore("simulation",first,false,true))
+                {
+                    readOnlyStore.Ready.GetAwaiter().GetResult();
+                    bool readOnlyRejected=false;try{readOnlyStore.QueryPageAsync(DateTime.UtcNow.AddHours(-1),DateTime.UtcNow.AddHours(1),0,0,10).GetAwaiter().GetResult();}catch(InvalidOperationException e){readOnlyRejected=e.Message.Contains("只读兼容库");}
+                    if(!readOnlyRejected)throw new Exception("C14只读兼容库的排队命令未快速失败。");checks++;
+                }
+                string craftedText="\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"+new string('告',32750);
+                using(SampleStore craftedStore=new SampleStore("simulation",Path.Combine(data,"crafted.db"),true,false))
+                {
+                    craftedStore.Ready.GetAwaiter().GetResult();craftedStore.StartSessionAsync(1,"crafted").GetAwaiter().GetResult();
+                    if(!craftedStore.TryEnqueue(AlarmSnapshot.Capture(alarm,"simulation",1,DateTime.UtcNow,craftedText,1,2)))throw new Exception("C7测试告警入队失败");
+                    XlsxExportResult craftedExport=craftedStore.ExportXlsxAsync(DateTime.UtcNow.AddHours(-1),DateTime.UtcNow.AddHours(1),0,Path.Combine(root,"out-crafted"),null,CancellationToken.None).GetAwaiter().GetResult();
+                    if(craftedExport.AlarmRows!=1)throw new Exception("C7含控制字符的长告警文本导出被截断或中止。");checks++;
+                    craftedStore.StopSessionAsync().GetAwaiter().GetResult();
+                }
                 form.Dispose();form=null;
                 string faultData=Path.Combine(root,"fault-data");
                 form=new MainForm(faultData,Path.Combine(root,"fault-settings","recording-period.txt"));form.simulate.Checked=true;h=form.Handle;form.ToggleConnection();
@@ -59,7 +77,7 @@ namespace BmsSerialDemo
             }
             finally
             {
-                if(form!=null){form.previewMode=true;form.pollCycleBusy=false;form.Disconnect();foreach(SampleStore db in form.stores.Values)try{db.Dispose();}catch{}form.stores.Clear();form.Dispose();}
+                if(form!=null){form.previewMode=true;form.pollCycleBusy=false;form.Disconnect();foreach(SampleStore db in form.stores.Values)try{db.Dispose();}catch{}form.stores.Clear();try{Task[] drains;lock(form.pendingStoreDrains)drains=form.pendingStoreDrains.ToArray();if(drains.Length>0)Task.WaitAll(drains,20000);}catch{}form.Dispose();}
                 string absolute=Path.GetFullPath(root),baseRoot=Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar;
                 if(absolute.StartsWith(baseRoot,StringComparison.OrdinalIgnoreCase)&&Directory.Exists(absolute))Directory.Delete(absolute,true);
             }
