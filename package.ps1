@@ -1,4 +1,4 @@
-param([string]$Version='1.2.2', [string]$BuildDirectory='.testing\stage2')
+﻿param([string]$Version='1.2.5', [string]$BuildDirectory='.testing\stage2')
 $ErrorActionPreference = 'Stop'
 $demoRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $demoRoot $BuildDirectory))
@@ -22,6 +22,7 @@ $runtimeFiles = [ordered]@{
  'x64/SQLite.Interop.dll'=(Join-Path $demoRoot 'x64\SQLite.Interop.dll')
  'x86/SQLite.Interop.dll'=(Join-Path $demoRoot 'x86\SQLite.Interop.dll')
  '运行与迁移说明.md'=(Join-Path $demoRoot '运行与迁移说明.md')
+ 'Win10云端检查说明.md'=(Join-Path $demoRoot 'WIN10_CLOUD_CHECK.md')
 }
 try {
  New-Item -ItemType Directory -Path $appRoot -Force | Out-Null

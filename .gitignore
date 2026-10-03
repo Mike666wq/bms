@@ -10,6 +10,8 @@ logs/
 settings/
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 *.log
 
 # ---- 构建与测试产物 ----
@@ -18,11 +20,12 @@ verification/
 release/
 *.exe
 *.pdb
+/package-manifest.json
+.package-*/
 /preview*.png
 
 # ---- 本机专属文件（指向桌面 BMS运行 目录）----
 /本机运行说明.md
-/启动最新版本.cmd
 
 # ---- 内部过程文档（不公开）----
 /审查报告-*.md

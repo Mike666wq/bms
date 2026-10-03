@@ -81,7 +81,7 @@ namespace BmsSerialDemo
                 Request pending44 = new Request { Command = 0x44, Pack = 1, Address = 1 };
                 Check(!MainForm.MatchesPending(Protocol.Decode(Simulator.Respond(1, 0x42, 1)), pending44), "C9迟到的42响应不被44请求接收");
                 Check(MainForm.MatchesPending(Protocol.Decode(Simulator.Respond(1, 0x44, 1)), pending44), "C9布局匹配的44响应正常接收");
-                int cloudChecks=CloudRealtimeService.RunSelfTests();for(int i=0;i<cloudChecks;i++)Check(true,"云端配置/DPAPI/假租约/有界上传");
+                int cloudChecks=CloudRealtimeService.RunSelfTests()+CloudDiagnostics.RunSelfTests();for(int i=0;i<cloudChecks;i++)Check(true,"云端配置/DPAPI/假租约/有界上传");
                 File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "self-test-result.txt"), "PASS: " + assertions + " checks (including headless UI simulation)\r\n" + DateTime.Now.ToString("O"), Encoding.UTF8);
                 Environment.ExitCode = 0;
             }

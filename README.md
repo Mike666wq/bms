@@ -2,11 +2,11 @@
 
 一个独立的 Windows 桌面程序，通过串口读取电池管理系统（BMS）的实时数据，提供实时监控、本地数据记录、历史查询与 Excel/CSV 导出。
 
-- 基于 **WinForms + .NET Framework 4.x**，用系统自带的 `csc.exe` 编译，**无 NuGet 依赖**；
+- 基于 **WinForms + .NET Framework 4.8**，用系统自带的 `csc.exe` 编译，SQLite 依赖随仓库提供，无需在线恢复 NuGet 包；
 - 内置**模拟设备**，没有实机也能完整演示与自测；
 - 数据落盘为 **SQLite**，支持按周期**分期分库**与流式导出。
 
-> 当前版本：1.2.2（开发中）。协议依据《串口通信协议 V1.1》，针对特定 BMS 设备，实机使用前请阅读文末[注意事项](#注意事项)。
+> 当前版本：1.2.5。源码、构建脚本、云端模块与最新迁移包均以本目录为准；运行包位于 `release/`，不纳入 Git。协议依据《串口通信协议 V1.1》，针对特定 BMS 设备。开发进度见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 界面预览
 
@@ -43,6 +43,8 @@
 ### 云端连接（默认关闭）
 - 可选云模块：HTTPS 上报、DPAPI 令牌保护、稳定设备编号、心跳/观看租约。
 - 仅在有效观看租约内发送新鲜快照（最多缓存 16 个 Pack 最新值），不上传完整历史；无人观看只发心跳。
+- 可对接正式云端实时页面；Win11 已由用户验证模拟及实机上传。Win10 校园网排查发现默认 DNS 超时，公共 DNS 可解析，后续需验证服务器连通和认证。
+- .NET 4.8 强加密与系统默认 TLS；增加分阶段连接诊断、脱敏错误分类、限频轮转日志和跨电脑 DPAPI 令牌不可读提示。
 
 ### 通信诊断
 - 单次读取与收发日志；原始逐帧日志默认关闭，启用后写入 `logs/`。
@@ -50,8 +52,8 @@
 
 ## 环境要求
 
-- Windows（建议 Windows 10/11，自带 .NET Framework 4.x 运行时）
-- 构建需要 .NET Framework 4.x 开发组件（系统自带的 `csc.exe` 即可，无需 Visual Studio）
+- Windows 10/11，需要 **.NET Framework 4.8 或兼容的更新版本**；部分 Win10 需另行安装运行时。
+- 构建使用 .NET Framework 的 `csc.exe`，无需 Visual Studio。迁移必须一起携带 `BmsRealtimeDemo.exe.config` 和 SQLite 依赖。
 
 ## 构建与自检
 
@@ -68,7 +70,7 @@
 ./package.ps1
 ```
 
-当前自检覆盖协议编码/解析、多 Pack、损坏帧与分段输入、导出与取消、分期库边界/重启/时间校正、42/44 路由与迟到响应识别、身份冲突停采、真实本机 HTTP 云端收发、分期状态损坏隔离与保存失败降级恢复等共 228 项检查。
+当前构建通过 **280 项自检**，覆盖协议、记录、导出、分库、界面布局、云端请求/超时/取消/认证、TLS 配置和诊断脱敏。实际公网 TLS 1.2 严格证书校验通过；实验室 Win10 完整端到端仍待验证。
 
 ## 运行
 
@@ -84,6 +86,7 @@
 BmsRealtimeDemo.exe --preview-ui [宽x高]   # 渲染界面预览 PNG（模拟数据只写临时隔离目录并自动清理，
                                           # 正式数据库/分期状态/云端均不受影响；可用 BMS_PREVIEW_ROOT 重定向隔离根）
 BmsRealtimeDemo.exe --self-test            # 运行软件自检
+BmsRealtimeDemo.exe --cloud-probe https://pv-ac.bbben.xyz  # 仅检测 TLS 1.2，不发送令牌和实验数据
 ```
 
 ## 数据存储
@@ -108,6 +111,7 @@ BmsSerialDemo/
 ├── PartitionCycleManager.cs    # 分期切库与周期生命周期
 ├── PartitionStorage.cs / PartitionIntegration.cs
 ├── CloudRealtime.cs / CloudPage.cs   # 云端模块（默认关闭）
+├── CloudDiagnostics.cs / CloudDiagnosticsDialog.cs # 连接诊断、报告保存
 ├── StoragePage.cs / TrendControl.cs  # 数据记录页与趋势控件
 ├── lib/ x64/ x86/              # SQLite 依赖（托管 + 本机，免 NuGet）
 ├── build.ps1 / run-self-test.ps1 / package.ps1
@@ -120,12 +124,15 @@ BmsSerialDemo/
 |---|---|
 | [项目文件与存储说明.md](项目文件与存储说明.md) | 完整文件树、数据库表结构、存储与迁移机制 |
 | [运行与迁移说明.md](运行与迁移说明.md) | 换机运行、串口配置与数据库迁移步骤 |
+| [CHANGELOG.md](CHANGELOG.md) | 当前开发进度、版本变化与验证边界 |
+| [WIN10_CLOUD_CHECK.md](WIN10_CLOUD_CHECK.md) | Win10 连接诊断及网络问题定位 |
+| [CLOUD_CODEX_HANDOFF.md](CLOUD_CODEX_HANDOFF.md) | 云端页面配合的接口、鉴权与观看租约规范 |
 
 ## 注意事项
 
 - 本程序针对《串口通信协议 V1.1》所描述的特定 BMS 设备开发；**软件自检通过不等于实机验证**，温度测点 5/6 的物理标签、均衡位含义及各固件变体仍需实机核对。
 - 程序不会自动重连，也不会自动向设备写入任何参数；轮询响应按地址 + 42/44 布局校验匹配，迟到响应会被识别并丢弃，但非轮询类命令仍按地址匹配。
-- 云端模块默认关闭且不包含任何后台服务实现；正式部署前请勿开启。
+- 云端模块默认关闭，本仓库包含本地客户端；云端服务与页面由独立项目提供。配置设备令牌后启用连接，跨电脑迁移需重新配置 DPAPI 保护的令牌。
 - DPI 为系统级感知：多显示器不同缩放或运行中修改缩放后，请重启程序以正确重排界面。
 - 程序未做代码签名；`data/` 中的实验数据属于使用者自己的采集结果，请自行决定是否公开。
 

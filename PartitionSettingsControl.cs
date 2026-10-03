@@ -15,6 +15,8 @@ namespace BmsSerialDemo
     internal sealed class PartitionSettingsControl : UserControl
     {
         readonly Func<string> getSummary;
+        bool syncingDays;
+        bool editingDays;
         readonly ComboBox preset = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 96 };
         readonly NumericUpDown custom = new NumericUpDown { Minimum = 1, Maximum = 3650, Value = 30, Width = 76, Enabled = false };
         readonly Label summary = new Label { AutoSize = true, ForeColor = Color.FromArgb(55, 75, 98), Margin = new Padding(10, 7, 10, 0) };
@@ -35,7 +37,8 @@ namespace BmsSerialDemo
             shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); shell.RowStyles.Add(new RowStyle(SizeType.Absolute,28)); shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             shell.Controls.Add(toggle,0,0); shell.Controls.Add(row,0,1); Controls.Add(shell);
             toggle.LinkClicked += delegate { row.Visible=!row.Visible; toggle.Text=row.Visible?"分库周期与状态  ▾":"分库周期与状态  ▸"; PerformLayout(); };
-            preset.SelectedIndexChanged += delegate { custom.Enabled = preset.SelectedIndex == 3; };
+            preset.SelectedIndexChanged += delegate { custom.Enabled = preset.SelectedIndex == 3; if (!syncingDays) editingDays = true; };
+            custom.ValueChanged += delegate { if (!syncingDays) editingDays = true; };
             next.Click += delegate { Raise(false); }; immediate.Click += delegate { Raise(true); };
             RefreshSummary();
         }
@@ -46,15 +49,21 @@ namespace BmsSerialDemo
             catch (Exception ex) { summary.Text = "分期状态暂不可用：" + ex.Message; }
         }
 
-        // C11：回读管理器当前周期，避免设置区恒显“30 天”与摘要自相矛盾、误点静默改期。
-        // 预设显示“当前生效”天数；已排期变更由 PartitionCycleManager.Summary 的“下一切换…起改为 N 天”呈现。
-        public void SetCurrentDays(int activeDays, int pendingDays)
+        // Periodic acquisition refresh must not overwrite an unsaved user selection.
+        // The summary shows the active period; the editor shows a scheduled change when present.
+        public void SetCurrentDays(int activeDays, int pendingDays, bool resetDraft = false)
         {
-            if (activeDays == 7) preset.SelectedIndex = 0;
-            else if (activeDays == 15) preset.SelectedIndex = 1;
-            else if (activeDays == 30) preset.SelectedIndex = 2;
-            else { preset.SelectedIndex = 3; try { custom.Value = Math.Min(3650, Math.Max(1, activeDays)); } catch { } }
-            custom.Enabled = preset.SelectedIndex == 3;
+            if (editingDays && !resetDraft) return;
+            syncingDays = true;
+            try
+            {
+                int days = pendingDays > 0 ? pendingDays : activeDays;
+                custom.Value = Math.Min(3650, Math.Max(1, days));
+                preset.SelectedIndex = days == 7 ? 0 : days == 15 ? 1 : days == 30 ? 2 : 3;
+                custom.Enabled = preset.SelectedIndex == 3;
+                editingDays = false;
+            }
+            finally { syncingDays = false; }
         }
 
         internal int SelectedDays { get { return preset.SelectedIndex == 0 ? 7 : preset.SelectedIndex == 1 ? 15 : preset.SelectedIndex == 2 ? 30 : (int)custom.Value; } }

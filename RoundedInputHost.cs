@@ -34,11 +34,21 @@ namespace BmsSerialDemo
             // 退化为细平面外观，与宿主圆角边框不再叠出“双边框”； IME/下拉/键盘语义保持原生。
             if(control is ComboBox||control is DateTimePicker||control is NumericUpDown)control.HandleCreated+=delegate{try{SetWindowTheme(control.Handle,"","");}catch{}};
             control.Font=editorFont;
-            control.Dock=DockStyle.Fill;control.Margin=Padding.Empty;control.BackColor=Color.White;Controls.Add(control);
+            control.Dock=control is NumericUpDown?DockStyle.None:DockStyle.Fill;control.Margin=Padding.Empty;control.BackColor=Color.White;Controls.Add(control);
             control.Enter+=delegate{focused=true;Invalidate();};control.Leave+=delegate{focused=false;Invalidate();};
             MouseEnter+=delegate{hovered=true;Invalidate();};MouseLeave+=delegate{hovered=false;Invalidate();};
             control.MouseEnter+=delegate{hovered=true;Invalidate();};control.MouseLeave+=delegate{hovered=false;Invalidate();};
             control.EnabledChanged+=delegate{control.BackColor=control.Enabled?Color.White:Color.FromArgb(240,243,247);Invalidate();};
+        }
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            base.OnLayout(e);
+            NumericUpDown numeric=editor as NumericUpDown;
+            if(numeric==null)return;
+            // Native number editors keep their font-dependent height. Center that
+            // complete editor (including its arrows) inside the rounded field.
+            int height=Math.Min(numeric.PreferredHeight,Math.Max(1,ClientSize.Height-Padding.Vertical));
+            numeric.Bounds=new Rectangle(Padding.Left,Math.Max(Padding.Top,(ClientSize.Height-height)/2),Math.Max(1,ClientSize.Width-Padding.Horizontal),height);
         }
         protected override void OnEnabledChanged(EventArgs e){if(editor!=null){editor.Enabled=Enabled;if(!Enabled)focused=false;}Invalidate();base.OnEnabledChanged(e);}
         protected override void Dispose(bool disposing){base.Dispose(disposing);if(disposing)tooltip.Dispose();}

@@ -11,8 +11,9 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Windows.Forms;
 
-[assembly: AssemblyVersion("1.2.2.0")]
-[assembly: AssemblyFileVersion("1.2.2.0")]
+[assembly: AssemblyVersion("1.2.5.0")]
+[assembly: AssemblyFileVersion("1.2.5.0")]
+[assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
 {
@@ -35,7 +36,7 @@ namespace BmsSerialDemo
         [STAThread] static void Main(string[] args)
         {
             ConfigureApplicationStylesAndDpi();
-            diagnosticMode = args.Length > 0 && (args[0] == "--self-test" || args[0] == "--test-ui-layout" || args[0] == "--preview-ui" || args[0] == "--capture-ui");
+            diagnosticMode = args.Length > 0 && (args[0] == "--cloud-probe" || args[0] == "--self-test" || args[0] == "--test-ui-layout" || args[0] == "--preview-ui" || args[0] == "--capture-ui");
             // 诊断/预览模式同样注册全局异常钩子：仅记录日志，不弹窗、不改变退出行为，保证自动化运行可观察失败原因。
             AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e) { CrashLogger.Write("AppDomain unhandled exception; terminating=" + e.IsTerminating + (diagnosticMode ? "; mode=diagnostic" : ""), e.ExceptionObject as Exception); };
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -53,6 +54,7 @@ namespace BmsSerialDemo
                 }
                 return null;
             };
+            if(args.Length>0&&args[0]=="--cloud-probe"){try{Uri probe=new Uri(args.Length>1?args[1]:"https://pv-ac.bbben.xyz");string result=CloudDiagnostics.RunEndpointProbeAsync(probe,CancellationToken.None).GetAwaiter().GetResult();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-probe-result.txt"),result,new UTF8Encoding(true));}catch(Exception e){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-probe-result.txt"),CloudNetworkErrors.Describe(e),new UTF8Encoding(true));Environment.ExitCode=1;}return;}
             if (diagnosticMode) { if(args[0] == "--self-test") { SelfTest.Run(); return; } if(args[0] == "--test-ui-layout") { int checks=UiLayoutTests.Run();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"ui-layout-test-result.txt"),"PASS: "+checks+" UI layout checks (125%/150% simulated; Windows display scaling unchanged).\r\n",Encoding.UTF8);return; } int duration=6500;if(args.Length>2)Int32.TryParse(args[2],out duration);MainForm.CapturePreview(args.Length > 1 ? args[1] : "1360x920",Math.Max(6500,Math.Min(600000,duration))); return; }
             try { Application.Run(new MainForm()); }
             catch(Exception e) { CrashLogger.Write("Startup/main loop exception", e); try { MessageBox.Show("程序遇到未处理错误，将退出。诊断日志已保存到 logs 目录。", "BMS 运行错误", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { } }
@@ -184,7 +186,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.2 UI 预览"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.5"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             deviceId=LoadDeviceId();
             InitializePartitionManagers();
@@ -195,7 +197,7 @@ namespace BmsSerialDemo
             Add(bar, "串口", ports); Button refresh = new Button { Text = "刷新", Width = 55, Height = 26, FlatStyle = FlatStyle.Flat, BackColor = Color.White }; bar.Controls.Add(refresh);
             Add(bar, "波特率", baud); Add(bar, "地址", address); Add(bar, "Pack", pack); bar.Controls.Add(all); bar.Controls.Add(simulate);
             Panel masthead = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(28, 57, 91) };
-            Label brand = new Label { Text = "BMS  /  实时监控  ·  1.2.2 UI 预览", AutoSize = true, Font = BrandFont, ForeColor = Color.White, Location = new Point(18, 9) };
+            Label brand = new Label { Text = "BMS  /  实时监控  ·  1.2.5", AutoSize = true, Font = BrandFont, ForeColor = Color.White, Location = new Point(18, 9) };
             connect.Anchor = AnchorStyles.Top | AnchorStyles.Right; connect.BackColor=Color.FromArgb(65,111,232);connect.ForeColor=Color.White;masthead.Controls.Add(connect); masthead.Controls.Add(brand);
             masthead.Resize += delegate { connect.Location = new Point(masthead.ClientSize.Width - connect.Width - 16, 7); };
             TableLayoutPanel shell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.FromArgb(239, 244, 249) };
@@ -483,6 +485,7 @@ namespace BmsSerialDemo
             try
             {
                 simulatedConnection = simulate.Checked;
+                cloudPublisher.ResetCaptureSession();
                 if (!simulatedConnection)
                 {
                     if (ports.SelectedItem == null) { Notice("没有可用串口，请连接 USB-RS485 转换器并刷新"); return; }
@@ -501,6 +504,7 @@ namespace BmsSerialDemo
         }
         void Disconnect()
         {
+            if(cloudPublisher!=null)cloudPublisher.ResetCaptureSession();
             string recordError = null;
             connected = false; generation++; polling = false; timer.Stop(); freshnessTimer.Stop(); poll.Text = "开始轮询";poll.IconGlyph="▶";
             try { if (activeStore != null) activeStore.StopSessionAsync().GetAwaiter().GetResult(); }

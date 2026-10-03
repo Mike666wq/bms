@@ -32,7 +32,24 @@ namespace BmsSerialDemo
                 Check(control.SummaryText.Contains("下一切换"), "设置控件展示manager摘要");
                 control.SetCurrentDays(7, 0); Check(control.SelectedDays == 7, "C11设置控件回读7天预设而非恒显30天");
                 control.SetCurrentDays(45, 0); Check(control.SelectedDays == 45, "C11设置控件回读非预设天数切自定义并填值");
-                control.SetCurrentDays(30, 15); Check(control.SelectedDays == 30, "C11设置控件回读当前生效天数（排期由摘要呈现）"); control.Dispose();
+                control.SetCurrentDays(30, 15); Check(control.SelectedDays == 15, "已排期的15天显示在编辑器中，当前周期仍由摘要显示");
+                var preset = (System.Windows.Forms.ComboBox)typeof(PartitionSettingsControl).GetField("preset", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(control);
+                var custom = (System.Windows.Forms.NumericUpDown)typeof(PartitionSettingsControl).GetField("custom", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(control);
+                preset.SelectedIndex = 0;
+                for (int i = 0; i < 5; i++) control.SetCurrentDays(30, 0);
+                Check(control.SelectedDays == 7, "重复采集刷新不覆盖未保存的7天选择");
+                preset.SelectedIndex = 1; control.SetCurrentDays(30, 0);
+                Check(control.SelectedDays == 15, "采集刷新不覆盖15天选择");
+                preset.SelectedIndex = 3; custom.Value = 12; control.SetCurrentDays(30, 0);
+                Check(control.SelectedDays == 12 && custom.Enabled, "采集刷新不覆盖自定义周期");
+                int submitted = 0; control.Requested += delegate(object sender, PartitionSettingsRequestedEventArgs args) { submitted = args.Days; };
+                typeof(PartitionSettingsControl).GetMethod("Raise", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).Invoke(control, new object[] { false });
+                Check(submitted == 12, "提交使用保留的自定义周期");
+                control.SetCurrentDays(30, 12, true); control.SetCurrentDays(30, 12);
+                Check(control.SelectedDays == 12, "保存下期生效后不跳回当前30天");
+                control.SetCurrentDays(7, 0, true);
+                Check(control.SelectedDays == 7, "切换数据源或立即生效后重新读取已保存周期");
+                control.Dispose();
                 PartitionCycleManager restarted = new PartitionCycleManager(data, "stable-device-id", "serial", serialState);
                 Check(restarted.Describe(start.AddDays(1)).DatabasePath == first.DatabasePath, "重启恢复当前周期");
 

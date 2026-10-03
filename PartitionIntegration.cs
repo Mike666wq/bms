@@ -65,7 +65,7 @@ namespace BmsSerialDemo
                 if(pollCycleBusy){Notice("分期设置已排队，将在当前实时数据和告警读取完成后处理。");return;}
                 try{ApplyQueuedPartitionSettings();}catch(Exception e){Notice("分期设置未保存："+e.Message);}
             };
-            storagePage.SelectedSourceChanged+=delegate{SyncPartitionSettingsDays();partitionSettings.RefreshSummary();};
+            storagePage.SelectedSourceChanged+=delegate{SyncPartitionSettingsDays(true);partitionSettings.RefreshSummary();};
             SyncPartitionSettingsDays();
             TableLayoutPanel recordLayout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,BackColor=Color.FromArgb(243,247,251),Padding=new Padding(4)};
             recordLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));recordLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));recordLayout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
@@ -77,16 +77,16 @@ namespace BmsSerialDemo
             if(!IsPartitionAvailable(requestedPartitionSource)){Notice("分期设置未保存：本地记录分期（"+requestedPartitionSource+"）不可用，本次运行禁止写库。");return;}
             GetPartitionManager(requestedPartitionSource).Configure(requestedPartitionDays,requestedPartitionImmediate,DateTime.UtcNow);
             requestedPartitionDays=0;
-            if(partitionSettings!=null){SyncPartitionSettingsDays();partitionSettings.RefreshSummary();}
+            if(partitionSettings!=null){SyncPartitionSettingsDays(true);partitionSettings.RefreshSummary();}
             Notice(requestedPartitionImmediate?"分期设置已保存；下一轮采集写入新分期，历史数据保留。":"分期设置已保存；当前分期结束后生效，历史数据保留。");
         }
-        void SyncPartitionSettingsDays()
+        void SyncPartitionSettingsDays(bool resetDraft=false)
         {
             if(partitionSettings==null||storagePage==null)return;
             string source=storagePage.SelectedSource;
             if(String.IsNullOrEmpty(source)||!IsPartitionAvailable(source))return;
             PartitionCycleManager manager=GetPartitionManager(source);
-            partitionSettings.SetCurrentDays(manager.ActiveDays,manager.PendingDays);
+            partitionSettings.SetCurrentDays(manager.ActiveDays,manager.PendingDays,resetDraft);
         }
         void PrepareRoundPartition(string source,DateTime utc,long round)
         {

@@ -73,6 +73,14 @@ namespace BmsSerialDemo
                 Check(grid.Columns.Count>2&&grid.Columns[2].MinimumWidth>=230,label+"窄屏时间列保留完整本地毫秒宽度");
                 Check(grid.ScrollBars==ScrollBars.Both,label+"窄屏记录表格可横向滚动");
             }
+            TabPage cloud=null;foreach(TabPage tab in tabs.TabPages)if(tab.Text=="云端连接")cloud=tab;
+            Check(cloud!=null,label+"云端连接页面存在");
+            tabs.SelectedTab=cloud;PerformTreeLayout(cloud);Application.DoEvents();
+            StyledActionButton diagnose=FindControl<StyledActionButton>(cloud,c=>c.Text=="连接诊断");
+            StyledActionButton saveCloud=FindControl<StyledActionButton>(cloud,c=>c.Text=="保存连接设置");
+            Check(diagnose!=null&&saveCloud!=null,label+"连接诊断和保存按钮存在");
+            Check(diagnose.Parent.ClientRectangle.Contains(diagnose.Bounds)&&saveCloud.Parent.ClientRectangle.Contains(saveCloud.Bounds),label+"诊断与保存按钮完整处于操作区域");
+            Check(!diagnose.Bounds.IntersectsWith(saveCloud.Bounds),label+"诊断按钮没有与保存按钮重叠");
         }
 
         static T FindControl<T>(Control root,Func<T,bool> match) where T:Control

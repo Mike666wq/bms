@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -18,6 +19,25 @@ namespace BmsSerialDemo
         public static int Run()
         {
             checks = 0;
+            string tokenSentinel="secret-token-should-never-be-shown";
+            Check(CloudNetworkErrors.Describe(new WebException(tokenSentinel,WebExceptionStatus.NameResolutionFailure)).Contains("DNS解析失败"),"DNS失败分类");
+            Check(CloudNetworkErrors.Describe(new WebException(tokenSentinel,WebExceptionStatus.TrustFailure)).Contains("TLS证书验证失败"),"证书验证失败分类");
+            Check(CloudNetworkErrors.Describe(new WebException(tokenSentinel,WebExceptionStatus.SecureChannelFailure)).Contains("TLS握手失败"),"TLS握手失败分类");
+            Check(CloudNetworkErrors.Describe(new WebException(tokenSentinel,new System.Security.Authentication.AuthenticationException(tokenSentinel),WebExceptionStatus.ConnectFailure,null)).Contains("TLS握手失败"),"AuthenticationException映射TLS握手");
+            Check(CloudNetworkErrors.Describe(new SocketException((int)SocketError.ConnectionRefused)).Contains("连接被拒绝"),"Socket拒绝连接分类");
+            Check(CloudNetworkErrors.Describe(new SocketException((int)SocketError.HostNotFound)).Contains("DNS解析失败"),"Socket DNS分类");
+            string ioDescription=CloudNetworkErrors.Describe(new IOException(tokenSentinel));
+            Check(ioDescription.Contains("I/O请求失败")&&!ioDescription.Contains("TLS")&&!ioDescription.Contains(tokenSentinel),"普通I/O异常不误报TLS且脱敏");
+            Check(CloudNetworkErrors.Describe(new CloudHttpException(407,tokenSentinel)).Contains("代理要求认证"),"代理407分类");
+            Check(CloudNetworkErrors.Describe(new CloudHttpException(401,tokenSentinel)).Contains("认证失败"),"401认证分类");
+            Check(CloudNetworkErrors.Describe(new TimeoutException(tokenSentinel)).Contains("请求超时"),"超时分类");
+            string safeDescription=CloudNetworkErrors.Describe(new InvalidDataException(tokenSentinel));
+            Check(safeDescription.Contains("协议错误")&&!safeDescription.Contains(tokenSentinel),"协议错误脱敏");
+            safeDescription=CloudNetworkErrors.Describe(new CloudHttpException(500,tokenSentinel));
+            Check(!safeDescription.Contains(tokenSentinel),"HTTP错误脱敏");
+            object[] frameworkAttributes=System.Reflection.Assembly.GetExecutingAssembly().GetCustomAttributes(typeof(System.Runtime.Versioning.TargetFrameworkAttribute),false);
+            Check(frameworkAttributes.Length==1&&((System.Runtime.Versioning.TargetFrameworkAttribute)frameworkAttributes[0]).FrameworkName==".NETFramework,Version=v4.8","测试程序集目标框架是.NET Framework 4.8");
+            Check(ServicePointManager.SecurityProtocol==(SecurityProtocolType)0,"未设置全局TLS版本，保留系统默认协议");
             using (ControlledCloudTransportTestHost host = new ControlledCloudTransportTestHost())
             {
                 HttpsCloudTransport transport = Transport(host); CloudConfiguration config = Config(host);
