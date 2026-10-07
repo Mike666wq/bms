@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Text;
+using System.Security.Cryptography;
 using System.IO.Compression;
 using System.Threading;
 using System.Threading.Tasks;
@@ -84,9 +85,11 @@ namespace BmsSerialDemo
             {
                 string cs="Data Source="+path+";Version=3;Read Only=True;BusyTimeout=5000;";
                 string db=path.ToLowerInvariant();List<StoredSample> perDb=new List<StoredSample>();
-                using(SQLiteConnection c=new SQLiteConnection(cs)){c.Open();using(SQLiteCommand q=new SQLiteCommand("SELECT id,received_utc_ms,address,pack,soc,soh,cycles,voltage_cV,current_cA,remaining_cAh,total_cAh FROM samples WHERE received_utc_ms>=@f AND received_utc_ms<@to AND (@p=0 OR pack=@p) AND (@has=0 OR received_utc_ms<@bt OR (received_utc_ms=@bt AND (@db<@bdb OR (@db=@bdb AND id<@bid)))) ORDER BY received_utc_ms DESC,id DESC LIMIT @n",c))
+                using(SQLiteConnection c=new SQLiteConnection(cs)){c.Open();string sourceExpr=Col(c,"samples","source","s"),sessionExpr=Col(c,"samples","session_id","s"),roundExpr=Col(c,"samples","acquisition_round","s"),periodExpr=Col(c,"samples","period_seconds","s");
+                string sql="SELECT s.id,s.received_utc_ms,s.address,s.pack,s.soc,s.soh,s.cycles,s.voltage_cV,s.current_cA,s.remaining_cAh,s.total_cAh,"+sourceExpr+","+sessionExpr+","+roundExpr+","+periodExpr+" FROM samples s WHERE s.received_utc_ms>=@f AND s.received_utc_ms<@to AND (@p=0 OR s.pack=@p) AND (@has=0 OR s.received_utc_ms<@bt OR (s.received_utc_ms=@bt AND (@db<@bdb OR (@db=@bdb AND s.id<@bid)))) ORDER BY s.received_utc_ms DESC,s.id DESC LIMIT @n";
+                using(SQLiteCommand q=new SQLiteCommand(sql,c))
                 {q.Parameters.AddWithValue("@f",f);q.Parameters.AddWithValue("@to",to);q.Parameters.AddWithValue("@p",pack);q.Parameters.AddWithValue("@has",before==null?0:1);q.Parameters.AddWithValue("@bt",before==null?0:ToMs(before.ReceivedUtc));q.Parameters.AddWithValue("@db",db);q.Parameters.AddWithValue("@bdb",before==null?"":before.Database);q.Parameters.AddWithValue("@bid",before==null?0:before.Id);q.Parameters.AddWithValue("@n",limit);
-                 using(SQLiteDataReader r=q.ExecuteReader())while(r.Read())perDb.Add(new StoredSample{Database=db,Id=r.GetInt64(0),ReceivedUtc=FromMs(r.GetInt64(1)),Address=(byte)r.GetInt32(2),Pack=r.GetInt32(3),Soc=r.GetInt32(4),Soh=r.GetInt32(5),Cycles=r.GetInt32(6),Voltage=r.GetInt32(7)/100.0,Current=r.GetInt32(8)/100.0,RemainingAh=r.GetInt32(9)/100.0,TotalAh=r.GetInt32(10)/100.0,Cells=new int[0],Temperatures=new int[0]});}}
+                 using(SQLiteDataReader r=q.ExecuteReader())while(r.Read()){long sid=r.IsDBNull(12)?0:Convert.ToInt64(r.GetValue(12),CultureInfo.InvariantCulture);perDb.Add(new StoredSample{Database=db,Id=r.GetInt64(0),Source=r.IsDBNull(11)?source:r.GetString(11),HistorySessionId=HistorySession(db,sid),AcquisitionRound=r.IsDBNull(13)?0:Convert.ToInt64(r.GetValue(13),CultureInfo.InvariantCulture),PeriodSeconds=r.IsDBNull(14)?(int?)null:Convert.ToInt32(r.GetValue(14),CultureInfo.InvariantCulture),ReceivedUtc=FromMs(r.GetInt64(1)),Address=(byte)r.GetInt32(2),Pack=r.GetInt32(3),Soc=r.GetInt32(4),Soh=r.GetInt32(5),Cycles=r.GetInt32(6),Voltage=r.GetInt32(7)/100.0,Current=r.GetInt32(8)/100.0,RemainingAh=r.GetInt32(9)/100.0,TotalAh=r.GetInt32(10)/100.0,Cells=new int[0],Temperatures=new int[0]});}}}
                 page.AddRange(perDb);page=page.OrderByDescending(x=>x.ReceivedUtc).ThenByDescending(x=>x.Database,StringComparer.Ordinal).ThenByDescending(x=>x.Id).Take(limit).ToList();
             }
             ReadChildren(page);return page;
@@ -148,6 +151,7 @@ namespace BmsSerialDemo
         static int CompareCsv(CsvEvent a,CsvEvent b){int n=a.UtcMs.CompareTo(b.UtcMs);if(n!=0)return n;n=StringComparer.Ordinal.Compare(a.Db,b.Db);if(n!=0)return n;n=a.Kind.CompareTo(b.Kind);return n!=0?n:a.Id.CompareTo(b.Id);}
         static string Csv(params string[] fields){for(int i=0;i<fields.Length;i++){string v=fields[i]??"";fields[i]="\""+v.Replace("\"","\"\"")+"\"";}return String.Join(",",fields);}
         static string MsLocal(long n){return FromMs(n).ToLocalTime().ToString("o",CultureInfo.InvariantCulture);}static string HexBytes(byte[] b){return BitConverter.ToString(b??new byte[0]).Replace("-","");}
+        static string HistorySession(string database,long sessionId){using(SHA256 sha=SHA256.Create()){byte[] hash=sha.ComputeHash(Encoding.UTF8.GetBytes((database??"").ToLowerInvariant()+"|"+sessionId.ToString(CultureInfo.InvariantCulture)));return "bms-history-"+BitConverter.ToString(hash,0,16).Replace("-","").ToLowerInvariant();}}
         static bool HasColumn(SQLiteConnection c,string table,string column){using(SQLiteCommand q=new SQLiteCommand("PRAGMA table_info("+table+")",c))using(SQLiteDataReader r=q.ExecuteReader())while(r.Read())if(String.Equals(r.GetString(1),column,StringComparison.OrdinalIgnoreCase))return true;return false;}
         static bool HasTable(SQLiteConnection c,string table){using(SQLiteCommand q=new SQLiteCommand("SELECT 1 FROM sqlite_master WHERE type='table' AND name=@n",c)){q.Parameters.AddWithValue("@n",table);return q.ExecuteScalar()!=null;}}
         static string Col(SQLiteConnection c,string table,string column,string alias=null){return HasColumn(c,table,column)?(alias==null?column:alias+"."+column):"NULL";}

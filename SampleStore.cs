@@ -34,6 +34,10 @@ namespace BmsSerialDemo
     {
         public string Database { get; internal set; }
         public long Id { get; internal set; }
+        public string Source { get; internal set; }
+        public string HistorySessionId { get; internal set; }
+        public long AcquisitionRound { get; internal set; }
+        public int? PeriodSeconds { get; internal set; }
         public DateTime ReceivedUtc { get; internal set; }
         public byte Address { get; internal set; }
         public int Pack { get; internal set; }

@@ -18,6 +18,7 @@ settings/
 .testing/
 verification/
 release/
+/BMS运行/
 *.exe
 *.pdb
 /package-manifest.json

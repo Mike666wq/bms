@@ -11,8 +11,8 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Windows.Forms;
 
-[assembly: AssemblyVersion("1.2.5.0")]
-[assembly: AssemblyFileVersion("1.2.5.0")]
+[assembly: AssemblyVersion("1.2.6.0")]
+[assembly: AssemblyFileVersion("1.2.6.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -186,18 +186,18 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.5"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.6"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             deviceId=LoadDeviceId();
             InitializePartitionManagers();
             monthlyCatalog=new MonthlyCatalog(dataRoot,deviceId);
-            cloudConfiguration=CloudConfiguration.Load(cloudSettingsPath,deviceId);cloudConfiguration.DeviceId=deviceId;cloudPublisher=new CloudRealtimeService(delegate{return cloudConfiguration;});publisher=cloudPublisher;
+            cloudConfiguration=CloudConfiguration.Load(cloudSettingsPath,deviceId);cloudConfiguration.DeviceId=deviceId;cloudPublisher=new CloudRealtimeService(delegate{return cloudConfiguration;},null,ReadCloudHistory);publisher=cloudPublisher;
             LoadPeriodSettings(testDataRoot==null);
             FlowLayoutPanel bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = true, Padding = new Padding(8, 5, 8, 3), BackColor = Color.FromArgb(247, 250, 253) };
             Add(bar, "串口", ports); Button refresh = new Button { Text = "刷新", Width = 55, Height = 26, FlatStyle = FlatStyle.Flat, BackColor = Color.White }; bar.Controls.Add(refresh);
             Add(bar, "波特率", baud); Add(bar, "地址", address); Add(bar, "Pack", pack); bar.Controls.Add(all); bar.Controls.Add(simulate);
             Panel masthead = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(28, 57, 91) };
-            Label brand = new Label { Text = "BMS  /  实时监控  ·  1.2.5", AutoSize = true, Font = BrandFont, ForeColor = Color.White, Location = new Point(18, 9) };
+            Label brand = new Label { Text = "BMS  /  实时监控  ·  1.2.6", AutoSize = true, Font = BrandFont, ForeColor = Color.White, Location = new Point(18, 9) };
             connect.Anchor = AnchorStyles.Top | AnchorStyles.Right; connect.BackColor=Color.FromArgb(65,111,232);connect.ForeColor=Color.White;masthead.Controls.Add(connect); masthead.Controls.Add(brand);
             masthead.Resize += delegate { connect.Location = new Point(masthead.ClientSize.Width - connect.Width - 16, 7); };
             TableLayoutPanel shell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.FromArgb(239, 244, 249) };
@@ -298,6 +298,15 @@ namespace BmsSerialDemo
             PartitionDescriptor descriptor=GetPartitionManager(source).Describe(utc);
             if(round>0)roundPartitions[round]=descriptor;
             return ActivateStorePath(source,descriptor.DatabasePath,round);
+        }
+        IList<StoredSample> ReadCloudHistory(string source,DateTime fromUtc,DateTime toUtc,int pack)
+        {
+            List<StoredSample> rows=new List<StoredSample>();StoredSample cursor=null;
+            for(int pageNumber=0;pageNumber<20;pageNumber++)
+            {
+                IList<StoredSample> page=monthlyCatalog.QueryPage(source,fromUtc,toUtc,pack,cursor,500);if(page.Count==0)break;rows.AddRange(page);cursor=page[page.Count-1];if(page.Count<500)break;
+            }
+            return rows;
         }
         SampleStore ActivateStorePath(string source,string path,long round)
         {
