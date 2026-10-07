@@ -11,8 +11,8 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Windows.Forms;
 
-[assembly: AssemblyVersion("1.2.6.0")]
-[assembly: AssemblyFileVersion("1.2.6.0")]
+[assembly: AssemblyVersion("1.2.7.0")]
+[assembly: AssemblyFileVersion("1.2.7.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -92,7 +92,7 @@ namespace BmsSerialDemo
     {
         readonly ComboBox ports = new ComboBox { Width = 105, DropDownStyle = ComboBoxStyle.DropDownList };
         readonly NumericUpDown baud = Number(9600, 1200, 115200, 95), address = Number(1, 1, 254, 55), pack = Number(1, 1, 16, 50), period = Number(2, 1, 86400, 85), timeout = Number(1500, 100, 60000, 85);
-        readonly StyledCheckBox all = new StyledCheckBox { Text = "全部 Pack", Checked = false }, simulate = new StyledCheckBox { Text = "模拟设备", Checked = true }, save = new StyledCheckBox { Text = "记录原始收发日志", Checked = false };
+        readonly StyledCheckBox all = new StyledCheckBox { Text = "全部 Pack", Checked = false }, simulate = new StyledCheckBox { Text = "模拟设备", Checked = false }, save = new StyledCheckBox { Text = "记录原始收发日志", Checked = false };
         readonly StyledActionButton connect = new StyledActionButton { Text = "连接", IconGlyph = "●", Width = 104, Height = 34 };
         readonly StyledActionButton poll = new StyledActionButton { Text = "开始轮询", IconGlyph = "▶", Width = 144, Height = 32 };
         readonly ComboBox command = new ComboBox { Width = 210, DropDownStyle = ComboBoxStyle.DropDownList };
@@ -100,7 +100,7 @@ namespace BmsSerialDemo
         readonly TextBox details = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Font = DetailsFont, WordWrap = false };
         readonly TextBox log = new TextBox { Multiline = true, ReadOnly = true, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Both, Font = LogFont, WordWrap = false };
         readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false, RowHeadersVisible = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill };
-        readonly Label status = new Label { Dock = DockStyle.Bottom, Height = 28, Text = "未连接。默认模拟模式，可先验证显示和解析。" };
+        readonly Label status = new Label { Dock = DockStyle.Bottom, Height = 28, Text = "未连接。默认实机模式（模拟设备需手动勾选），不会自动连接。" };
         readonly Label connectionState = new Label { AutoSize = true, Text = "● 未连接", ForeColor = Color.Gray, Font = BoldBodyFont };
         readonly Label[] metrics = new Label[7];
         readonly Label spread = new Label { AutoSize = true, ForeColor = Color.DarkSlateGray };
@@ -186,7 +186,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.6"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.7"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             deviceId=LoadDeviceId();
             InitializePartitionManagers();
@@ -197,7 +197,7 @@ namespace BmsSerialDemo
             Add(bar, "串口", ports); Button refresh = new Button { Text = "刷新", Width = 55, Height = 26, FlatStyle = FlatStyle.Flat, BackColor = Color.White }; bar.Controls.Add(refresh);
             Add(bar, "波特率", baud); Add(bar, "地址", address); Add(bar, "Pack", pack); bar.Controls.Add(all); bar.Controls.Add(simulate);
             Panel masthead = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(28, 57, 91) };
-            Label brand = new Label { Text = "BMS  /  实时监控  ·  1.2.6", AutoSize = true, Font = BrandFont, ForeColor = Color.White, Location = new Point(18, 9) };
+            Label brand = new Label { Text = "BMS  /  实时监控  ·  1.2.7", AutoSize = true, Font = BrandFont, ForeColor = Color.White, Location = new Point(18, 9) };
             connect.Anchor = AnchorStyles.Top | AnchorStyles.Right; connect.BackColor=Color.FromArgb(65,111,232);connect.ForeColor=Color.White;masthead.Controls.Add(connect); masthead.Controls.Add(brand);
             masthead.Resize += delegate { connect.Location = new Point(masthead.ClientSize.Width - connect.Width - 16, 7); };
             TableLayoutPanel shell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.FromArgb(239, 244, 249) };
@@ -368,6 +368,7 @@ namespace BmsSerialDemo
             ComboBox series = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 95 }; series.Items.AddRange(new object[] { "总压", "电流", "SOC" }); series.SelectedIndex = 0; series.SelectedIndexChanged += delegate { trend.SeriesIndex = series.SelectedIndex; };
             ComboBox pointCount = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 70 }; pointCount.Items.AddRange(new object[] { "120点", "300点", "600点" }); pointCount.SelectedIndex = 0; pointCount.SelectedIndexChanged += delegate { trend.Capacity = pointCount.SelectedIndex == 0 ? 120 : pointCount.SelectedIndex == 1 ? 300 : 600; };
             trendHead.Controls.Add(new RoundedInputHost(pointCount){Width=88,Height=32,Margin=new Padding(2,0,4,0)});trendHead.Controls.Add(new RoundedInputHost(series){Width=112,Height=32,Margin=new Padding(2,0,4,0)}); chartContent.Controls.Add(trend); chartContent.Controls.Add(trendHead); trend.Dock = DockStyle.Fill;
+            trendHead.Controls.Add(new Label{Text="普通滚轮滚动页面; Ctrl+滚轮缩放; 双击恢复",AutoSize=true,ForeColor=Color.FromArgb(89,108,130),Margin=new Padding(4,6,4,0)});
             low.Panel1.Controls.Add(chartPanel); low.Panel2.Controls.Add(temps); layout.Controls.Add(low, 0, 3);
             bool resizingLayout=false;Action resizeLayout=null;
             resizeLayout=delegate
@@ -423,12 +424,12 @@ namespace BmsSerialDemo
             {
                 // C2：截图/预览在临时隔离根中运行——模拟样本、分期状态、云端配置、采集间隔设置
                 // 全部落在隔离目录，正式数据库与真实云端不受任何污染；结束后整目录清理。
-                form.previewMode = false; form.save.Checked = false; form.ShowInTaskbar = false; form.Opacity = 0; form.WindowState = FormWindowState.Normal; form.Size = new Size(width, height);
+                form.previewMode = false; form.simulate.Checked=true;form.save.Checked = false; form.ShowInTaskbar = false; form.Opacity = 0; form.WindowState = FormWindowState.Normal; form.Size = new Size(width, height);
                 form.Shown += async delegate
                 {
                     try
                     {
-                        form.ToggleConnection(); DateTime sampleStart=DateTime.UtcNow.AddSeconds(-54);
+                        form.simulate.Checked=true;form.ToggleConnection(); DateTime sampleStart=DateTime.UtcNow.AddSeconds(-54);
                         for (int i = 0; i < 28; i++) form.trend.Add(1, i == 27 ? 52.92 : 52.9 + Math.Sin(i / 4.0) * .08, i == 27 ? -1.23 : -1.2 + Math.Cos(i / 5.0) * .2, i == 27 ? 80 : 79 + (int)Math.Round(Math.Sin(i / 7.0)), sampleStart.AddSeconds(i*2));
                         await form.Send(0x42, 255, new byte[] { 255 }); await form.Send(0x44, 255, new byte[] { 255 });form.TogglePolling();await Task.Delay(duration);form.TogglePolling();
                         string previewRoot=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"ui-screenshots");Directory.CreateDirectory(previewRoot);string[] names={"实时总览","数据记录","云端连接","通信诊断"};string[] files={"live","storage","cloud","diagnostics"};for(int i=0;i<names.Length;i++){foreach(TabPage tab in form.mainTabs.TabPages)if(tab.Text==names[i])form.mainTabs.SelectedTab=tab;form.PerformLayout();Application.DoEvents();await Task.Delay(120);using(Bitmap bmp=new Bitmap(form.Width,form.Height)){form.DrawToBitmap(bmp,new Rectangle(0,0,bmp.Width,bmp.Height));bmp.Save(Path.Combine(previewRoot,files[i]+"-"+width+"x"+height+".png"));}}
@@ -817,9 +818,9 @@ namespace BmsSerialDemo
         {
             using (MainForm form = new MainForm())
             {
-                form.previewMode = true; form.save.Checked = false;
+                form.previewMode = true; form.simulate.Checked=true;form.save.Checked = false;
                 IntPtr handle = form.Handle;
-                form.ToggleConnection();
+                form.simulate.Checked=true;form.ToggleConnection();
                 Task task = form.Send(0x42, 1, new byte[] { 1 });
                 DateTime deadline = DateTime.UtcNow.AddSeconds(5);
                 while (!task.IsCompleted && DateTime.UtcNow < deadline) { Application.DoEvents(); Thread.Sleep(10); }

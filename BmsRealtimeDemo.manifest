@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity version="1.2.4.0" processorArchitecture="*" name="BmsRealtimeDemo" type="win32" />
-  <description>BMS Realtime Monitor 1.2.4 UI Preview</description>
+  <assemblyIdentity version="1.2.7.0" processorArchitecture="*" name="BmsRealtimeDemo" type="win32" />
+  <description>BMS Realtime Monitor 1.2.7</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

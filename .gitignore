@@ -20,6 +20,8 @@ verification/
 release/
 /BMS运行/
 *.exe
+*.exe.*.bak
+*.exe.bak
 *.pdb
 /package-manifest.json
 .package-*/

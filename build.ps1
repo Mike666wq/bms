@@ -15,7 +15,6 @@ $files = @('BmsRealtimeDemo.exe', 'System.Data.SQLite.dll', 'SQLite.Interop.dll'
     $item = Get-Item -LiteralPath $path
     [pscustomobject]@{ name = $_; length = $item.Length; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash }
 }
-$buildManifest = [pscustomobject]@{ version = '1.2.6.0'; channel = 'development'; builtUtc = [DateTime]::UtcNow.ToString('o'); signature = 'unsigned'; files = @($files) }
+$buildManifest = [pscustomobject]@{ version = '1.2.7.0'; channel = 'development'; builtUtc = [DateTime]::UtcNow.ToString('o'); signature = 'unsigned'; files = @($files) }
 $buildManifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $testRoot 'build-manifest.json') -Encoding UTF8
 Write-Output ('Isolated development build succeeded: ' + $outputExe)
-
