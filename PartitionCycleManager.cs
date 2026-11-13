@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
+using Acme.Base;
 namespace BmsSerialDemo
 {
     internal sealed class PartitionDescriptor

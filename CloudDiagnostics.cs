@@ -14,6 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 
+using Acme.Cloud;
 namespace BmsSerialDemo
 {
     /// <summary>Privacy-safe, bounded diagnostics for the configured cloud endpoint.</summary>

@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 
+using Acme.Base;
 namespace BmsSerialDemo
 {
     public sealed partial class MainForm

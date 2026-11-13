@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
+using Acme.Base;
 namespace BmsSerialDemo
 {
     sealed class StoragePage : UserControl

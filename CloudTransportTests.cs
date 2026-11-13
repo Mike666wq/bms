@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 
+using Acme.Cloud;
 namespace BmsSerialDemo
 {
     internal static class CloudTransportTests

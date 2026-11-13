@@ -1,0 +1,1 @@
+{"subscriptionId":"v_7Kd3mQ2xR9","schemaVersion":1,"module":"bms","points":[{"source":"serial","address":1,"pack":1,"connectionSessionId":"bms-history-serial_cycle_20261101T000000000_30d_000001_001.db","sequence":4412,"capturedUtc":"2026-11-13T10:36:00.000Z","periodSeconds":2,"voltageCentivolts":5238,"currentCentiamps":-1248,"socPercent":86}]}

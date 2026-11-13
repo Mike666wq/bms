@@ -11,8 +11,10 @@ using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Windows.Forms;
 
-[assembly: AssemblyVersion("1.2.7.0")]
-[assembly: AssemblyFileVersion("1.2.7.0")]
+using Acme.Cloud;
+using Acme.Base;
+[assembly: AssemblyVersion("1.2.8.0")]
+[assembly: AssemblyFileVersion("1.2.8.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -35,8 +37,12 @@ namespace BmsSerialDemo
         }
         [STAThread] static void Main(string[] args)
         {
+            // 基座接线：崩溃日志目录 + 云配置读取失败日志，与原实现一致。
+            CrashLogger.FallbackFolder="BmsSerialDemo";
+            CloudNetworkErrors.FallbackFolder="BmsSerialDemo";
+            CloudConfiguration.LoadFailureLog=CrashLogger.Write;
             ConfigureApplicationStylesAndDpi();
-            diagnosticMode = args.Length > 0 && (args[0] == "--cloud-probe" || args[0] == "--self-test" || args[0] == "--test-ui-layout" || args[0] == "--preview-ui" || args[0] == "--capture-ui");
+            diagnosticMode = args.Length > 0 && (args[0] == "--cloud-probe" || args[0] == "--self-test" || args[0] == "--test-ui-layout" || args[0] == "--preview-ui" || args[0] == "--capture-ui" || args[0] == "--test-cloud");
             // 诊断/预览模式同样注册全局异常钩子：仅记录日志，不弹窗、不改变退出行为，保证自动化运行可观察失败原因。
             AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e) { CrashLogger.Write("AppDomain unhandled exception; terminating=" + e.IsTerminating + (diagnosticMode ? "; mode=diagnostic" : ""), e.ExceptionObject as Exception); };
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -55,31 +61,9 @@ namespace BmsSerialDemo
                 return null;
             };
             if(args.Length>0&&args[0]=="--cloud-probe"){try{Uri probe=new Uri(args.Length>1?args[1]:"https://pv-ac.bbben.xyz");string result=CloudDiagnostics.RunEndpointProbeAsync(probe,CancellationToken.None).GetAwaiter().GetResult();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-probe-result.txt"),result,new UTF8Encoding(true));}catch(Exception e){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-probe-result.txt"),CloudNetworkErrors.Describe(e),new UTF8Encoding(true));Environment.ExitCode=1;}return;}
-            if (diagnosticMode) { if(args[0] == "--self-test") { SelfTest.Run(); return; } if(args[0] == "--test-ui-layout") { int checks=UiLayoutTests.Run();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"ui-layout-test-result.txt"),"PASS: "+checks+" UI layout checks (125%/150% simulated; Windows display scaling unchanged).\r\n",Encoding.UTF8);return; } int duration=6500;if(args.Length>2)Int32.TryParse(args[2],out duration);MainForm.CapturePreview(args.Length > 1 ? args[1] : "1360x920",Math.Max(6500,Math.Min(600000,duration))); return; }
+            if (diagnosticMode) { if(args[0] == "--test-cloud") { try { int count=CloudRealtimeService.RunSelfTests(); File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-test-result.txt"),"PASS: "+count+" checks\r\n",Encoding.UTF8); Environment.ExitCode=0; } catch(Exception ex) { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-test-result.txt"),"FAIL: "+ex.ToString()+"\r\n",Encoding.UTF8); Environment.ExitCode=1; } return; } if(args[0] == "--self-test") { SelfTest.Run(); return; } if(args[0] == "--test-ui-layout") { int checks=UiLayoutTests.Run();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"ui-layout-test-result.txt"),"PASS: "+checks+" UI layout checks (125%/150% simulated; Windows display scaling unchanged).\r\n",Encoding.UTF8);return; } int duration=6500;if(args.Length>2)Int32.TryParse(args[2],out duration);MainForm.CapturePreview(args.Length > 1 ? args[1] : "1360x920",Math.Max(6500,Math.Min(600000,duration))); return; }
             try { Application.Run(new MainForm()); }
             catch(Exception e) { CrashLogger.Write("Startup/main loop exception", e); try { MessageBox.Show("程序遇到未处理错误，将退出。诊断日志已保存到 logs 目录。", "BMS 运行错误", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { } }
-        }
-    }
-    static class CrashLogger
-    {
-        static readonly object sync = new object();
-        internal static void Write(string exitType, Exception error)
-        {
-            try {
-                string body = "时间: " + DateTime.Now.ToString("o") + "\r\n退出类型: " + exitType + "\r\n版本: " + Assembly.GetExecutingAssembly().GetName().Version + "\r\n运行时: " + Environment.Version + "\r\n位数: " + (Environment.Is64BitProcess ? "64-bit" : "32-bit") + "\r\n操作系统: " + Environment.OSVersion + "\r\n异常:\r\n" + ExceptionText(error) + "\r\n";
-                string name = "crash-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + ".log";
-                lock(sync) { try { string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir, name), body, Encoding.UTF8); }
-                    catch { string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BmsSerialDemo", "logs"); Directory.CreateDirectory(dir); File.AppendAllText(Path.Combine(dir, name), body, Encoding.UTF8); } }
-            } catch { }
-        }
-        static string ExceptionText(Exception error)
-        {
-            if(error==null)return "<无异常对象>";
-            try{return error.ToString();}catch{
-                string type="<类型不可读>",message="<消息不可读>",stack="<调用栈不可读>";
-                try{type=error.GetType().FullName;}catch{}try{message=error.Message;}catch{}try{stack=error.StackTrace;}catch{}
-                return type+"\r\n"+message+"\r\n"+stack+"\r\n（完整异常格式化失败，已保留可读取的诊断字段）";
-            }
         }
     }
     sealed class Request

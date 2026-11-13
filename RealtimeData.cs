@@ -81,7 +81,7 @@ namespace BmsSerialDemo
         [System.Runtime.Serialization.DataMember(Name="acquisitionRound")] public long AcquisitionRound{get;private set;}
         [System.Runtime.Serialization.DataMember(Name="pack")] public int Pack{get;private set;}
         [System.Runtime.Serialization.DataMember(Name="payloadHex")] public string PayloadHex{get;private set;}
-        internal static CloudAlarmEnvelope From(AlarmSnapshot alarm){return new CloudAlarmEnvelope{ObservedUtc=alarm.ReceivedUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'",CultureInfo.InvariantCulture),AcquisitionRound=alarm.AcquisitionRound,Pack=alarm.Pack,PayloadHex=Protocol.Hex(alarm.Payload)};}
+        internal static CloudAlarmEnvelope From(AlarmSnapshot alarm){return new CloudAlarmEnvelope{ObservedUtc=alarm.ReceivedUtc.ToUniversalTime().ToString("o",CultureInfo.InvariantCulture),AcquisitionRound=alarm.AcquisitionRound,Pack=alarm.Pack,PayloadHex=Protocol.Hex(alarm.Payload)};}
     }
     [System.Runtime.Serialization.DataContract]
     public sealed class CloudSnapshotEnvelope
@@ -134,7 +134,7 @@ namespace BmsSerialDemo
         {
             if(s==null)throw new ArgumentNullException("s");
             if(alarm==null)alarm=s.AlarmObservation;
-            return new CloudSnapshotEnvelope { SchemaVersion=1,DeviceId=deviceId,ConnectionSessionId=sessionId,Sequence=sequence,AcquisitionRound=s.AcquisitionRound,PeriodSeconds=s.PeriodSeconds,CapturedUtc=s.ReceivedUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'",CultureInfo.InvariantCulture),Source=s.Source,Address=s.Address,Pack=s.Pack,
+            return new CloudSnapshotEnvelope { SchemaVersion=1,DeviceId=deviceId,ConnectionSessionId=sessionId,Sequence=sequence,AcquisitionRound=s.AcquisitionRound,PeriodSeconds=s.PeriodSeconds,CapturedUtc=s.ReceivedUtc.ToUniversalTime().ToString("o",CultureInfo.InvariantCulture),Source=s.Source,Address=s.Address,Pack=s.Pack,
                 VoltageCentivolts=(int)Math.Round(s.Voltage*100),CurrentCentiamps=(int)Math.Round(s.Current*100),SocPercent=s.Soc,SohPercent=s.Soh,
                 RemainingCentiAh=(int)Math.Round(s.RemainingAh*100),TotalCentiAh=(int)Math.Round(s.TotalAh*100),Cycles=s.Cycles,HumidityPercent=s.Humidity,
                 CellsMillivolts=s.Cells,TemperaturesCelsius=s.Temperatures,AlarmObservationAvailable=alarm!=null,AlarmObservation=alarm==null?null:CloudAlarmEnvelope.From(alarm) };
