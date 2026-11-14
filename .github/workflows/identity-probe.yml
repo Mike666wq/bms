@@ -1,0 +1,63 @@
+name: identity-probe
+
+# 验证身份目录落点：在干净的 Windows runner 上跑 --dump-paths。
+# 目的是把「沙箱里 0x80070005 回退安装目录」和「正常 Windows 上落在 ProgramData」
+# 这两件事分开——前者是运行环境限制，后者才是交付给用户的真实行为。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 取发布包
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://github.com/Mike666wq/bms/releases/download/v1.3.6/BmsRealtimeDemo-Windows-1.3.6.zip'
+          Invoke-WebRequest -Uri $url -OutFile bms.zip
+          Expand-Archive bms.zip -DestinationPath bms -Force
+          Get-ChildItem bms -Recurse -Filter '*.exe' | Select-Object FullName, Length
+
+      - name: 跑 --dump-paths
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem bms -Recurse -Filter 'BmsRealtimeDemo.exe' | Select-Object -First 1).FullName
+          Write-Host "EXE=$exe"
+          $dir = Split-Path $exe -Parent
+          $p = Start-Process -FilePath $exe -ArgumentList '--dump-paths' -WorkingDirectory $dir -PassThru -Wait
+          Write-Host "exit=$($p.ExitCode)"
+          $f = Join-Path $dir 'bms-paths.txt'
+          if (Test-Path $f) {
+            Write-Host '=== bms-paths.txt ==='
+            Get-Content $f | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host 'MISSING bms-paths.txt'
+          }
+          $d = Join-Path $dir 'acme-identity-diagnostic.txt'
+          if (Test-Path $d) {
+            Write-Host '=== acme-identity-diagnostic.txt ==='
+            Get-Content $d | ForEach-Object { Write-Host $_ }
+          } else {
+            Write-Host 'NO-DIAGNOSTIC (all candidates usable)'
+          }
+
+      - name: 断言落点
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem bms -Recurse -Filter 'BmsRealtimeDemo.exe' | Select-Object -First 1).FullName
+          $dir = Split-Path $exe -Parent
+          $content = Get-Content (Join-Path $dir 'bms-paths.txt') -Raw
+          Write-Host $content
+          if ($content -match 'resolved=C:\\ProgramData\\BmsSerialDemo\\settings') {
+            Write-Host 'PASS: 身份落在 ProgramData（升级不会换编号）'
+          } elseif ($content -match 'resolved=C:\\Users\\.+\\AppData\\Local\\BmsSerialDemo\\settings') {
+            Write-Host 'PASS: 身份落在 LocalAppData（升级不会换编号）'
+          } else {
+            Write-Host 'FAIL: 回退到了安装目录，升级会换编号'
+            exit 1
+          }
