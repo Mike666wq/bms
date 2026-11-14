@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.3.8.0")]
-[assembly: AssemblyFileVersion("1.3.8.0")]
+[assembly: AssemblyVersion("1.3.9.0")]
+[assembly: AssemblyFileVersion("1.3.9.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -185,7 +185,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.8"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.9"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             // 无人值守的模拟采集：--simulate 启动即勾选「模拟设备」。
             // 「模拟设备」是自绘控件，外部脚本点不动它；留这个开关给自动化验证和现场演示用。
