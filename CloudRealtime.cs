@@ -118,7 +118,9 @@ namespace BmsSerialDemo
             {
                 // protocolVersion 只在真接入时才声明：没认领过的设备仍旧发老格式，
                 // 让云端继续按 v1 处理，回包与升级前逐字节一致。
-                if(enrollment.ProtocolVersion>0)request.ProtocolVersion=enrollment.ProtocolVersion;
+                // 协议能力是「这份代码支持什么」，不是「本地状态文件记了什么」。
+                // 依赖状态文件会导致：状态文件丢了 → 退化发旧协议 → 云端停用/删除都下发不到。
+                request.ProtocolVersion=2;
                 if(!String.IsNullOrEmpty(enrollment.MachineKey))request.MachineKey=enrollment.MachineKey;
                 if(enrollment.ReportedConfigVersion>0)request.ReportedConfigVersion=enrollment.ReportedConfigVersion;
                 if(!String.IsNullOrEmpty(enrollment.LastAppliedCommandId))request.ReportedCommandId=enrollment.LastAppliedCommandId;
@@ -259,7 +261,7 @@ namespace BmsSerialDemo
         }
 
         /// <summary>把云端下发的配置与状态应用到运行时。protocolVersion 缺失 = 旧云端，一律不动。</summary>
-        void ApplyDeviceReply(CloudHeartbeatReply reply)
+        void ApplyDeviceReply(CloudHeartbeatReply reply,CloudConfiguration c)
         {
             if(reply==null||!reply.ProtocolVersion.HasValue)return;
             bool changed=false;
@@ -276,13 +278,13 @@ namespace BmsSerialDemo
                     changed=true;
                 }
                 if(!String.IsNullOrEmpty(reply.State)&&!String.Equals(state.State,reply.State,StringComparison.Ordinal)){state.State=reply.State;changed=true;}
-                ApplyCommands(reply.Commands,state);
+                ApplyCommands(reply.Commands,state,c);
                 if(changed)try{lock(enrollmentGate)CloudEnrollmentStore.Save(state);}catch(Exception e){CloudNetworkErrors.Write(e);}
             }
         }
 
         /// <summary>命令按 commandId 去重，只认比上次更新的那条。</summary>
-        void ApplyCommands(CloudDeviceCommand[] commands,CloudEnrollment state)
+        void ApplyCommands(CloudDeviceCommand[] commands,CloudEnrollment state,CloudConfiguration c)
         {
             if(commands==null||commands.Length==0)return;
             foreach(CloudDeviceCommand command in commands)
@@ -296,6 +298,9 @@ namespace BmsSerialDemo
                     state.ClaimSecret=null;state.ClaimId=null;state.State="revoked";state.ProtocolVersion=0;
                     state.LastAppliedCommandId=command.CommandId;
                     uploadAllowed=false;deviceState="revoked";
+                    // 同时清掉设备令牌：否则客户端会一直拿着旧令牌心跳，
+                    // 永远停在「已注销」而不会重新发起认领。
+                    if(c!=null&&!String.IsNullOrEmpty(c.Token)){try{c.Token="";c.Save();}catch{}}
                 }
                 else if(type=="stop-upload"){uploadAllowed=false;state.LastAppliedCommandId=command.CommandId;}
                 else if(type=="resume-upload"){uploadAllowed=true;state.LastAppliedCommandId=command.CommandId;}
@@ -312,7 +317,7 @@ namespace BmsSerialDemo
             ICloudEnrollmentTransport enrollmentTransport=transport as ICloudEnrollmentTransport;
             CloudEnrollment state;lock(enrollmentGate){state=enrollment;}
             if(enrollmentTransport==null||state==null)return false;
-            if(state.IsRevoked){Update("已注销","云端已删除该设备，请在网页重新批准接入",false);await Delay(5000);return false;}
+            // 已注销也允许重新发起认领：令牌已被清空，说明确实是人工重新接入。
             long now=Stopwatch.GetTimestamp();
             if(lastEnrollTick!=0&&(now-lastEnrollTick)*1000.0/Stopwatch.Frequency<enrollIntervalMs)return false;
             lastEnrollTick=now;
@@ -400,7 +405,7 @@ namespace BmsSerialDemo
                 }
                 try
                 {
-                    if(scheduler.ElapsedMilliseconds>=nextHeartbeatAt){uploadRequest=false;CloudHeartbeatReply reply=await transport.HeartbeatAsync(c,shutdown.Token).ConfigureAwait(false);if(reply==null||reply.LeaseSeconds<0||reply.LeaseSeconds>3600||reply.BackfillSeconds<0||reply.BackfillSeconds>300||reply.RequestedPacks==null||reply.RequestedPacks.Length>16||(reply.LeaseSeconds>0&&String.IsNullOrWhiteSpace(reply.SubscriptionId)))throw new InvalidDataException("心跳租约响应字段无效");int[] packs=reply.RequestedPacks;foreach(int pack in packs)if(pack<1||pack>16)throw new InvalidDataException("心跳租约包含无效 Pack");lock(sync){status.LastContactUtc=DateTime.UtcNow;}RecordSuccess();ApplyDeviceReply(reply);nextHeartbeatAt=scheduler.ElapsedMilliseconds+(reply.LeaseSeconds>0?Math.Min(15000,Math.Max(3000,reply.LeaseSeconds*500)):15000);if(!uploadHasFailed)backoff=1;string previousSubscription=subscription;subscription=reply.SubscriptionId;if(!String.Equals(previousSubscription,subscription,StringComparison.Ordinal)){lock(sync)sent.Clear();nextUploadAttemptAt=0;}requested=new HashSet<int>(packs);if(!String.IsNullOrEmpty(subscription)&&reply.LeaseSeconds>0){lease.Restart();leaseDeadline=(long)reply.LeaseSeconds*1000;Update("在线等待观看","收到观看租约",true);ScheduleWarmBackfill(c,reply,requested,subscription);}else{CancelBackfill();leaseDeadline=0;Update("在线等待观看","暂无观看订阅，仅发送心跳",false);}}
+                    if(scheduler.ElapsedMilliseconds>=nextHeartbeatAt){uploadRequest=false;CloudHeartbeatReply reply=await transport.HeartbeatAsync(c,shutdown.Token).ConfigureAwait(false);if(reply==null||reply.LeaseSeconds<0||reply.LeaseSeconds>3600||reply.BackfillSeconds<0||reply.BackfillSeconds>300||reply.RequestedPacks==null||reply.RequestedPacks.Length>16||(reply.LeaseSeconds>0&&String.IsNullOrWhiteSpace(reply.SubscriptionId)))throw new InvalidDataException("心跳租约响应字段无效");int[] packs=reply.RequestedPacks;foreach(int pack in packs)if(pack<1||pack>16)throw new InvalidDataException("心跳租约包含无效 Pack");lock(sync){status.LastContactUtc=DateTime.UtcNow;}RecordSuccess();ApplyDeviceReply(reply,c);nextHeartbeatAt=scheduler.ElapsedMilliseconds+(reply.LeaseSeconds>0?Math.Min(15000,Math.Max(3000,reply.LeaseSeconds*500)):15000);if(!uploadHasFailed)backoff=1;string previousSubscription=subscription;subscription=reply.SubscriptionId;if(!String.Equals(previousSubscription,subscription,StringComparison.Ordinal)){lock(sync)sent.Clear();nextUploadAttemptAt=0;}requested=new HashSet<int>(packs);if(!String.IsNullOrEmpty(subscription)&&reply.LeaseSeconds>0){lease.Restart();leaseDeadline=(long)reply.LeaseSeconds*1000;Update("在线等待观看","收到观看租约",true);ScheduleWarmBackfill(c,reply,requested,subscription);}else{CancelBackfill();leaseDeadline=0;Update("在线等待观看","暂无观看订阅，仅发送心跳",false);}}
                     if(leaseDeadline>0&&lease.ElapsedMilliseconds<leaseDeadline&&subscription!=null){KeyValuePair<string,Pending>? candidate=null;string uploadSession=null;long uploadGeneration=0;if(scheduler.ElapsedMilliseconds>=nextUploadAttemptAt)lock(sync){CloudConfiguration current;try{current=configuration();}catch{current=null;}bool configurationCurrent=current!=null&&current.Enabled&&current.HasValidEndpoint&&!String.IsNullOrWhiteSpace(current.Token)&&ReferenceEquals(current,c);if(configurationCurrent){long now=Stopwatch.GetTimestamp();long oldest=Int64.MaxValue;foreach(KeyValuePair<string,Pending> pair in latest){Pending p=pair.Value;int period=p.Snapshot.PeriodSeconds.HasValue?p.Snapshot.PeriodSeconds.Value:0;double elapsed=(now-p.UpdatedTimestamp)/(double)Stopwatch.Frequency;if(!IsFresh(period,p.CapturedAgeSeconds,elapsed)||!requested.Contains(p.Snapshot.Pack)||(p.Snapshot.Source=="simulation"&&!current.IncludeSimulation))continue;long sentSeq;if((!sent.TryGetValue(pair.Key,out sentSeq)||sentSeq!=p.Sequence)&&p.UpdatedTimestamp<oldest){oldest=p.UpdatedTimestamp;candidate=pair;}}}if(candidate.HasValue){uploadSession=sessionId;uploadGeneration=sessionGeneration;}}if(candidate.HasValue){uploadRequest=true;Pending p=candidate.Value.Value;CloudSnapshotEnvelope envelope=CloudSnapshotEnvelope.From(p.Snapshot,c.DeviceId,uploadSession,p.Sequence);await transport.SendSnapshotAsync(c,new CloudSnapshotPost{SubscriptionId=subscription,Snapshot=envelope},shutdown.Token).ConfigureAwait(false);uploadRequest=false;uploadHasFailed=false;bool currentSession=false;lock(sync){Pending current;if(sessionGeneration==uploadGeneration&&sessionId==uploadSession&&latest.TryGetValue(candidate.Value.Key,out current)&&current.Sequence==p.Sequence){sent[candidate.Value.Key]=p.Sequence;status.Sent++;status.LastUploadUtc=DateTime.UtcNow;status.LastSampleUtc=p.Snapshot.ReceivedUtc;currentSession=true;}}if(currentSession)Update("上传中","最近快照已确认",true);backoff=1;nextUploadAttemptAt=0;continue;}Update("在线等待观看",scheduler.ElapsedMilliseconds<nextUploadAttemptAt?"上传失败，等待重试":"租约有效；没有可上传的新鲜快照",true);}else if(leaseDeadline>0){leaseDeadline=0;Update("在线等待观看","观看租约已过期，上传已暂停",false);}
                 }
                 catch(OperationCanceledException){if(shutdown.IsCancellationRequested)break;lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;Update("离线重试","云端请求已取消；本地记录继续工作",false);long wait=1000L*backoff;if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait;else nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait;backoff=Math.Min(60,backoff*2);}
