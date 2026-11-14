@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.3.6.0")]
-[assembly: AssemblyFileVersion("1.3.6.0")]
+[assembly: AssemblyVersion("1.3.7.0")]
+[assembly: AssemblyFileVersion("1.3.7.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -183,6 +183,14 @@ namespace BmsSerialDemo
         public MainForm() : this(null,null) { }
         internal MainForm(string testDataRoot,string testPeriodSettingsPath)
         {
+            if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
+            if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.7"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
+            // 无人值守的模拟采集：--simulate 启动即勾选「模拟设备」。
+            // 「模拟设备」是自绘控件，外部脚本点不动它；留这个开关给自动化验证和现场演示用。
+            if(Array.IndexOf(Environment.GetCommandLineArgs(),"--simulate")>=0)simulate.Checked=true;
+            deviceId=LoadDeviceId();
             // 排障开关：只打印身份路径解析结果就退出，用来确认现场到底落在哪个目录。
             if(Array.IndexOf(Environment.GetCommandLineArgs(),"--dump-paths")>=0)
             {
@@ -207,14 +215,6 @@ namespace BmsSerialDemo
                 catch(Exception ex){try{File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"bms-paths.txt"),"EX "+ex);}catch{}}
                 Environment.Exit(0);
             }
-            if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
-            if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.6"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
-            Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
-            // 无人值守的模拟采集：--simulate 启动即勾选「模拟设备」。
-            // 「模拟设备」是自绘控件，外部脚本点不动它；留这个开关给自动化验证和现场演示用。
-            if(Array.IndexOf(Environment.GetCommandLineArgs(),"--simulate")>=0)simulate.Checked=true;
-            deviceId=LoadDeviceId();
             InitializePartitionManagers();
             monthlyCatalog=new MonthlyCatalog(dataRoot,deviceId);
             cloudConfiguration=CloudConfiguration.Load(cloudSettingsPath,deviceId);cloudConfiguration.DeviceId=deviceId;
