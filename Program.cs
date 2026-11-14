@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.3.1.0")]
-[assembly: AssemblyFileVersion("1.3.1.0")]
+[assembly: AssemblyVersion("1.3.2.0")]
+[assembly: AssemblyFileVersion("1.3.2.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -123,6 +123,14 @@ namespace BmsSerialDemo
         // 云端只有一个站点，地址是编译期常量：现场不再需要填服务地址。
         // 保留命令行 --cloud-probe 覆盖仅用于排障，不影响正常运行路径。
         internal const string CloudEndpoint="https://pv-ac.bbben.xyz";
+        /// <summary>自动化运行（自测/布局测试/截图/预览）—— 这些路径一律不连真实云端。</summary>
+        static bool IsAutomatedRun()
+        {
+            string[] argv=Environment.GetCommandLineArgs();
+            for(int i=0;i<argv.Length;i++)
+                if(argv[i]=="--self-test"||argv[i]=="--test-ui-layout"||argv[i]=="--preview-ui"||argv[i]=="--capture-ui"||argv[i]=="--test-cloud")return true;
+            return false;
+        }
         // 凭据放 ProgramData：安装目录会被整包替换，放那里等于每次升级都要重新注册。
         // 换路径必须连内容一起搬，否则老用户会看到「服务地址空了、令牌没了」。
         readonly string cloudSettingsPath=CloudSettingsMigration.AdoptConfig(
@@ -177,7 +185,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.1"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.2"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             deviceId=LoadDeviceId();
             InitializePartitionManagers();
@@ -186,7 +194,9 @@ namespace BmsSerialDemo
             // 地址与开关都由程序决定，不再读本地配置：云端才是唯一真相源。
             // 诊断隔离（--root= 临时数据根）时保持关闭，避免把模拟数据发到真实云端。
             cloudConfiguration.Endpoint=CloudEndpoint;
-            cloudConfiguration.Enabled=!diagnosticIsolation;
+            // 自测/截图/预览这类自动化运行绝不能连生产云端：
+            // 它们跑在临时目录里，每次都会生成新机器钥匙，等于往云端灌一堆待批准记录。
+            cloudConfiguration.Enabled=!diagnosticIsolation&&!IsAutomatedRun();
             cloudPublisher=new CloudRealtimeService(delegate{return cloudConfiguration;},null,ReadCloudHistory,Path.GetDirectoryName(cloudSettingsPath));publisher=cloudPublisher;
             LoadPeriodSettings(testDataRoot==null);
             FlowLayoutPanel bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = true, Padding = new Padding(8, 5, 8, 3), BackColor = Color.FromArgb(247, 250, 253) };

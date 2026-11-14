@@ -366,6 +366,13 @@ namespace BmsSerialDemo
             catch(CloudHttpException e)
             {
                 CloudNetworkErrors.Write(e);
+                if(e.StatusCode==429)
+                {
+                    // 限流不是错误，是「来太勤了」：把认领间隔翻倍，别继续撞墙。
+                    enrollIntervalMs=Math.Min(60000,Math.Max(5000,enrollIntervalMs*2));
+                    Update("等待批准","云端限流，已自动放慢申请节奏",false);
+                    return false;
+                }
                 if(e.StatusCode==401||e.StatusCode==403)
                 {
                     // 认领凭据失效（过期或被清空）：换一把新 secret 重新发起，不能一直撞同一个。
