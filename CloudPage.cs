@@ -12,7 +12,8 @@ namespace BmsSerialDemo
         readonly Func<CloudConfiguration> getConfig;readonly Action<CloudConfiguration> saveConfig;readonly CloudRealtimeService service;
         // 零配置：服务地址、令牌、启用开关、别名、模拟开关全部由云端下发，页面上不再有输入框。
         // 这里只展示「云端认为我是谁、允许我做什么」，不提供任何可编辑项。
-        readonly Label aliasValue=new Label{AutoSize=true,ForeColor=Color.FromArgb(46,95,145)};
+        readonly TextBox aliasValue=new TextBox{Width=260};
+        readonly CheckBox cloudEnabled=new CheckBox{Text="启用云端连接（不勾选只做本地采集）",AutoSize=true,Margin=new Padding(3,6,4,3)};
         readonly Label machineValue=new Label{AutoSize=true,ForeColor=Color.FromArgb(46,95,145)};
         readonly Label accessValue=new Label{AutoSize=true,MaximumSize=new Size(430,0),ForeColor=Color.FromArgb(46,95,145)};
         readonly Label state2Value=new Label{AutoSize=true,ForeColor=Color.FromArgb(46,95,145)};
@@ -24,12 +25,14 @@ namespace BmsSerialDemo
             FlowLayoutPanel root=new FlowLayoutPanel{Dock=DockStyle.Fill,AutoScroll=true,FlowDirection=FlowDirection.LeftToRight,WrapContents=true,BackColor=BackColor,Padding=new Padding(6)};
             Label title=new Label{Text="云端连接",AutoSize=true,Font=TitleFont,ForeColor=Color.FromArgb(25,52,82),Margin=new Padding(2,0,0,12)};
             FlowLayoutPanel left=new FlowLayoutPanel{FlowDirection=FlowDirection.TopDown,WrapContents=false,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,Margin=new Padding(0,0,12,8),Padding=Padding.Empty,BackColor=Color.Transparent};
-            GroupBox identity=Card("设备身份");TableLayoutPanel identityGrid=FieldGrid();identityGrid.RowCount=3;AddField(identityGrid,"设备编号",idValue,0);AddField(identityGrid,"设备别名",aliasValue,1);AddField(identityGrid,"机器钥匙",machineValue,2);identity.Controls.Add(identityGrid);
+            GroupBox identity=Card("设备身份");TableLayoutPanel identityGrid=FieldGrid();identityGrid.RowCount=4;AddField(identityGrid,"设备编号",idValue,0);AddField(identityGrid,"设备别名",aliasValue,1);AddField(identityGrid,"机器钥匙",machineValue,2);AddField(identityGrid,"云端连接",cloudEnabled,3);identity.Controls.Add(identityGrid);
             GroupBox settings=Card("云端授权");TableLayoutPanel form=FieldGrid();form.RowCount=3;AddField(form,"接入状态",state2Value,0);AddField(form,"允许上传范围",accessValue,1);
             FlowLayoutPanel actions=new FlowLayoutPanel{AutoSize=true,WrapContents=true,Dock=DockStyle.Fill};
             StyledActionButton reclaimButton=new StyledActionButton{Text="重新申请接入",IconGlyph="⟳",Width=168,Height=36,Margin=new Padding(4,6,4,2)};
             StyledActionButton diagnoseButton=new StyledActionButton{Text="连接诊断",IconGlyph="?",Width=144,Height=36,Margin=new Padding(4,6,4,2)};
-            actions.Controls.Add(reclaimButton);actions.Controls.Add(diagnoseButton);form.Controls.Add(actions,1,2);settings.Controls.Add(form);diagnoseButton.Click+=delegate{using(CloudDiagnosticsDialog dialog=new CloudDiagnosticsDialog(getConfig()))dialog.ShowDialog(this);};
+            StyledActionButton saveCloudButton=new StyledActionButton{Text="保存并连接",IconGlyph="✓",Width=150,Height=36,Margin=new Padding(4,6,4,2)};
+            actions.Controls.Add(saveCloudButton);actions.Controls.Add(reclaimButton);actions.Controls.Add(diagnoseButton);
+            saveCloudButton.Click+=delegate{CloudConfiguration current=getConfig();current.Alias=(aliasValue.Text??"").Trim();current.Enabled=cloudEnabled.Checked;current.Save();saveConfig(current);RefreshStatus();};form.Controls.Add(actions,1,2);settings.Controls.Add(form);diagnoseButton.Click+=delegate{using(CloudDiagnosticsDialog dialog=new CloudDiagnosticsDialog(getConfig()))dialog.ShowDialog(this);};
             GroupBox credentials=Card("凭据备份");credentials.Height=126;
             TableLayoutPanel credentialLayout=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,ColumnCount=1,RowCount=2,BackColor=Color.White,Padding=new Padding(6,5,6,8)};
             FlowLayoutPanel credentialActions=new FlowLayoutPanel{AutoSize=true,WrapContents=true,Dock=DockStyle.Fill};
@@ -96,7 +99,7 @@ namespace BmsSerialDemo
         static TableLayoutPanel FieldGrid(){TableLayoutPanel p=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,ColumnCount=2,BackColor=Color.White,Padding=new Padding(6,5,6,8),Font=BodyFont};p.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,160));p.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));return p;}
         static void AddField(TableLayoutPanel panel,string caption,Control field,int row){panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));Label label=new Label{Text=caption,AutoSize=true,Margin=new Padding(4,9,8,4),ForeColor=Color.FromArgb(88,105,125),Font=BodyFont};field.Margin=new Padding(3,3,4,3);panel.Controls.Add(label,0,row);panel.Controls.Add(field,1,row);}
         static void AddStatus(TableLayoutPanel panel,string heading,Control value,int row){panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));Label label=new Label{Text=heading,AutoSize=true,Margin=new Padding(4,7,6,6),ForeColor=Color.FromArgb(100,116,135),Font=BodyFont};value.Margin=new Padding(4,7,4,6);value.Font=heading=="当前状态"?StatusHeadingFont:BodyFont;panel.Controls.Add(label,0,row);panel.Controls.Add(value,1,row);}
-        void LoadConfig(){CloudConfiguration c=getConfig();idValue.Text=c.DeviceId;aliasValue.Text=String.IsNullOrEmpty(c.Alias)?"（等待云端分配）":c.Alias;RefreshStatus();}
+        void LoadConfig(){CloudConfiguration c=getConfig();idValue.Text=c.DeviceId;aliasValue.Text=c.Alias??"";cloudEnabled.Checked=c.Enabled;RefreshStatus();}
         /// <summary>
         /// 唯一保留的手动动作：把「我是谁」重新交回云端排队。
         /// 用于设备被删除/令牌被撤销后由现场人员发起重新接入——仍然不需要填任何东西。

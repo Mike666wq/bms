@@ -330,7 +330,7 @@ namespace BmsSerialDemo
                     state.ClaimSecret=NewClaimSecret();
                     state.Module="bms";
                     reply=await enrollmentTransport.ClaimAsync(ClaimCarrier(c,state.ClaimSecret),
-                        new CloudClaimRequest{MachineKey=state.MachineKey,Module="bms",ProtocolVersion=2,DesiredAlias=Environment.MachineName,Client=BuildClientReport()},shutdown.Token).ConfigureAwait(false);
+                        new CloudClaimRequest{MachineKey=state.MachineKey,Module="bms",ProtocolVersion=2,DesiredAlias=String.IsNullOrWhiteSpace(c.Alias)?Environment.MachineName:c.Alias,Client=BuildClientReport()},shutdown.Token).ConfigureAwait(false);
                 }
                 else
                 {

@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.3.9.0")]
-[assembly: AssemblyFileVersion("1.3.9.0")]
+[assembly: AssemblyVersion("1.3.10.0")]
+[assembly: AssemblyFileVersion("1.3.10.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -185,7 +185,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.9"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.10"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             // 无人值守的模拟采集：--simulate 启动即勾选「模拟设备」。
             // 「模拟设备」是自绘控件，外部脚本点不动它；留这个开关给自动化验证和现场演示用。
@@ -224,7 +224,9 @@ namespace BmsSerialDemo
             cloudConfiguration.Endpoint=CloudEndpoint;
             // 自测/截图/预览这类自动化运行绝不能连生产云端：
             // 它们跑在临时目录里，每次都会生成新机器钥匙，等于往云端灌一堆待批准记录。
-            cloudConfiguration.Enabled=!diagnosticIsolation&&!IsAutomatedRun();
+            // 云端开关归用户：首次运行默认关闭，用户在「云端连接」页勾选并保存后才生效。
+            // 之前这里无条件置 true，等于点开程序就自动认领，管理员那边白白多出一条待批准。
+            cloudConfiguration.Enabled=!diagnosticIsolation&&!IsAutomatedRun()&&cloudConfiguration.Enabled;
             cloudPublisher=new CloudRealtimeService(delegate{return cloudConfiguration;},null,ReadCloudHistory,Path.GetDirectoryName(cloudSettingsPath));publisher=cloudPublisher;
             LoadPeriodSettings(testDataRoot==null);
             FlowLayoutPanel bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = true, Padding = new Padding(8, 5, 8, 3), BackColor = Color.FromArgb(247, 250, 253) };
