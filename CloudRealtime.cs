@@ -32,6 +32,8 @@ namespace BmsSerialDemo
         [DataMember(Name="alias")]public string Alias{get;set;}
         [DataMember(Name="module",EmitDefaultValue=false)]public string Module{get;set;}
         [DataMember(Name="schemaVersion",EmitDefaultValue=false)]public int SchemaVersion{get;set;}
+        // 设备自述：把「只有现场能看到的体检结果」搭车送到云端。全部可选，坏数据由服务端降级。
+        [DataMember(Name="client",EmitDefaultValue=false)]public CloudClientReport Client{get;set;}
     }
     [DataContract]
     public sealed class CloudSnapshotPost
@@ -67,17 +69,28 @@ namespace BmsSerialDemo
         Task SendSnapshotAsync(CloudConfiguration configuration,CloudSnapshotPost post,CancellationToken token);
         Task SendBackfillAsync(CloudConfiguration configuration,CloudBackfillPost post,CancellationToken token);
     }
-    public sealed class HttpsCloudTransport:ICloudTransport
+    public sealed class HttpsCloudTransport:ICloudTransport,ICloudTokenRefresher
     {
         // 传输引擎在 Acme.Cloud：请求拼装、5s 整体时限、64KiB 响应上限、禁重定向、
         // 超时/取消/HTTP 状态码分类，三端共用同一份实现。
         static readonly DataContractJsonSerializer replySerializer=new DataContractJsonSerializer(typeof(CloudHeartbeatReply));
         static readonly DataContractJsonSerializer acknowledgementSerializer=new DataContractJsonSerializer(typeof(CloudAcknowledgement));
+        static readonly DataContractJsonSerializer refreshSerializer=new DataContractJsonSerializer(typeof(CloudTokenRefreshReply));
         readonly CloudHttpTransport engine;
         public HttpsCloudTransport(){engine=new CloudHttpTransport();}
         internal HttpsCloudTransport(Func<Uri,HttpWebRequest> factory,int timeoutMilliseconds,bool testLoopback){engine=new CloudHttpTransport(factory,timeoutMilliseconds,testLoopback);}
+        // 服务层把自述块的生产者挂在这里；传输层只负责搭车，不关心内容。
+        public Func<CloudClientReport> ClientReportProvider;
         public Task<CloudHeartbeatReply> HeartbeatAsync(CloudConfiguration configuration,CancellationToken token)
-        {CloudHeartbeatRequest request=new CloudHeartbeatRequest{DeviceId=configuration.DeviceId,Alias=configuration.Alias,Module="bms",SchemaVersion=1};return engine.SendAsync<CloudHeartbeatReply>(configuration,"/api/realtime/heartbeat",request,replySerializer,token);}
+        {
+            CloudHeartbeatRequest request=new CloudHeartbeatRequest{DeviceId=configuration.DeviceId,Alias=configuration.Alias,Module="bms",SchemaVersion=1};
+            Func<CloudClientReport> provider=ClientReportProvider;
+            if(provider!=null)try{request.Client=provider();}catch{}
+            return engine.SendAsync<CloudHeartbeatReply>(configuration,"/api/realtime/heartbeat",request,replySerializer,token);
+        }
+        /// <summary>用当前令牌换新令牌：设备自助续期，管理员不参与。</summary>
+        public Task<CloudTokenRefreshReply> RefreshTokenAsync(CloudConfiguration configuration,CancellationToken token)
+        {return engine.SendAsync<CloudTokenRefreshReply>(configuration,"/api/realtime/device/refresh",new CloudRefreshRequest(),refreshSerializer,token);}
         public async Task SendSnapshotAsync(CloudConfiguration configuration,CloudSnapshotPost post,CancellationToken token)
         {CloudAcknowledgement a=await engine.SendAsync<CloudAcknowledgement>(configuration,"/api/realtime/snapshots",post,acknowledgementSerializer,token).ConfigureAwait(false);if(a==null||!a.Accepted)throw new InvalidDataException("云端未确认快照");}
         public async Task SendBackfillAsync(CloudConfiguration configuration,CloudBackfillPost post,CancellationToken token)
@@ -91,9 +104,11 @@ namespace BmsSerialDemo
     {
         sealed class Pending{public RealtimeSnapshot Snapshot;public long Sequence;public long UpdatedTimestamp;public double CapturedAgeSeconds;}
         readonly object sync=new object(),backfillGate=new object();readonly Func<CloudConfiguration> configuration;readonly ICloudTransport transport;readonly Func<string,DateTime,DateTime,int,IList<StoredSample>> historyReader;readonly CancellationTokenSource shutdown=new CancellationTokenSource();readonly Dictionary<string,Pending> latest=new Dictionary<string,Pending>(StringComparer.Ordinal);readonly Dictionary<string,long> sent=new Dictionary<string,long>(StringComparer.Ordinal);string sessionId=Guid.NewGuid().ToString("N"),backfilledSubscription=null,backfillRunningSubscription=null;long sessionGeneration;readonly Task worker;Task backfillTask=Task.FromResult(0);CancellationTokenSource backfillCancel;readonly Random jitter=new Random();CloudRealtimeStatus status=new CloudRealtimeStatus{State="未启用",Detail="云端连接默认关闭"};long sequence,merged,notifiedSent,notifiedFailed;bool disposed;DateTime? notifiedContact,notifiedUpload;
+        // 离线诊断：把本机看到的失败阶段与次数攒起来，随下一次心跳送出去。
+        readonly DateTime startedUtc=DateTime.UtcNow;int consecutiveFailures;DateTime? lastSuccessUtc,lastRefreshUtc;string lastErrorStage,lastErrorCode,lastErrorAt;int lastErrorHttp,lastErrorCount;
         public event EventHandler StatusChanged;
         public CloudRealtimeStatus Status{get{lock(sync)return Copy(status);}}
-        public CloudRealtimeService(Func<CloudConfiguration> getConfiguration,ICloudTransport cloudTransport=null,Func<string,DateTime,DateTime,int,IList<StoredSample>> readHistory=null){configuration=getConfiguration;transport=cloudTransport??new HttpsCloudTransport();historyReader=readHistory;worker=Task.Run((Func<Task>)RunAsync);}
+        public CloudRealtimeService(Func<CloudConfiguration> getConfiguration,ICloudTransport cloudTransport=null,Func<string,DateTime,DateTime,int,IList<StoredSample>> readHistory=null){configuration=getConfiguration;transport=cloudTransport??new HttpsCloudTransport();historyReader=readHistory;HttpsCloudTransport https=transport as HttpsCloudTransport;if(https!=null)https.ClientReportProvider=BuildClientReport;worker=Task.Run((Func<Task>)RunAsync);}
         public void Publish(RealtimeSnapshot snapshot)
         {
             if(snapshot==null||snapshot.Pack<1||snapshot.Pack>16)return;lock(sync){if(disposed)return;CloudConfiguration c;try{c=configuration();}catch{return;}if(c==null||!c.Enabled||(snapshot.Source=="simulation"&&!c.IncludeSimulation))return;string key=snapshot.Source+":"+snapshot.Address+":"+snapshot.Pack;Pending old;if(latest.TryGetValue(key,out old))merged++;else if(latest.Count>=16){string drop=null;long oldest=Int64.MaxValue;foreach(KeyValuePair<string,Pending> pair in latest)if(pair.Value.UpdatedTimestamp<oldest){oldest=pair.Value.UpdatedTimestamp;drop=pair.Key;}if(drop!=null){latest.Remove(drop);sent.Remove(drop);merged++;}}DateTime now=DateTime.UtcNow;latest[key]=new Pending{Snapshot=snapshot,Sequence=++sequence,UpdatedTimestamp=Stopwatch.GetTimestamp(),CapturedAgeSeconds=Math.Max(0,(now-snapshot.ReceivedUtc.ToUniversalTime()).TotalSeconds)};status.Merged=merged;} }
@@ -137,25 +152,67 @@ namespace BmsSerialDemo
         }
         async Task RunAsync()
         {
-            Stopwatch scheduler=Stopwatch.StartNew();long nextHeartbeatAt=0,nextUploadAttemptAt=0;int backoff=1;bool uploadRequest=false,uploadHasFailed=false;Stopwatch lease=Stopwatch.StartNew();long leaseDeadline=0;string subscription=null;HashSet<int> requested=new HashSet<int>();CloudConfiguration activeConfiguration=null;
+            Stopwatch scheduler=Stopwatch.StartNew();long nextHeartbeatAt=0,nextUploadAttemptAt=0;int backoff=1;bool uploadRequest=false,uploadHasFailed=false;Stopwatch lease=Stopwatch.StartNew();long leaseDeadline=0;string subscription=null;HashSet<int> requested=new HashSet<int>();CloudConfiguration activeConfiguration=null;bool pendingRefresh=false;
             while(!shutdown.IsCancellationRequested)
             {
                 CloudConfiguration c=null;try{c=configuration();}catch{}if(c==null||!c.Enabled){CancelBackfill();lock(backfillGate)backfilledSubscription=null;subscription=null;leaseDeadline=0;activeConfiguration=null;lock(sync){latest.Clear();sent.Clear();}Update("未启用","云端连接默认关闭",false);await Delay(1000);continue;}if(!ReferenceEquals(activeConfiguration,c)){CancelBackfill();lock(backfillGate)backfilledSubscription=null;activeConfiguration=c;subscription=null;leaseDeadline=0;nextHeartbeatAt=0;nextUploadAttemptAt=0;requested.Clear();}if(!c.HasValidEndpoint||String.IsNullOrWhiteSpace(c.Token)){Update("等待配置","请输入 HTTPS 服务地址和设备令牌",false);await Delay(1000);continue;}
                 try
                 {
-                    if(scheduler.ElapsedMilliseconds>=nextHeartbeatAt){uploadRequest=false;CloudHeartbeatReply reply=await transport.HeartbeatAsync(c,shutdown.Token).ConfigureAwait(false);if(reply==null||reply.LeaseSeconds<0||reply.LeaseSeconds>3600||reply.BackfillSeconds<0||reply.BackfillSeconds>300||reply.RequestedPacks==null||reply.RequestedPacks.Length>16||(reply.LeaseSeconds>0&&String.IsNullOrWhiteSpace(reply.SubscriptionId)))throw new InvalidDataException("心跳租约响应字段无效");int[] packs=reply.RequestedPacks;foreach(int pack in packs)if(pack<1||pack>16)throw new InvalidDataException("心跳租约包含无效 Pack");lock(sync){status.LastContactUtc=DateTime.UtcNow;}nextHeartbeatAt=scheduler.ElapsedMilliseconds+(reply.LeaseSeconds>0?Math.Min(15000,Math.Max(2000,reply.LeaseSeconds*500)):15000);if(!uploadHasFailed)backoff=1;string previousSubscription=subscription;subscription=reply.SubscriptionId;if(!String.Equals(previousSubscription,subscription,StringComparison.Ordinal)){lock(sync)sent.Clear();nextUploadAttemptAt=0;}requested=new HashSet<int>(packs);if(!String.IsNullOrEmpty(subscription)&&reply.LeaseSeconds>0){lease.Restart();leaseDeadline=(long)reply.LeaseSeconds*1000;Update("在线等待观看","收到观看租约",true);ScheduleWarmBackfill(c,reply,requested,subscription);}else{CancelBackfill();leaseDeadline=0;Update("在线等待观看","暂无观看订阅，仅发送心跳",false);}}
+                    if(scheduler.ElapsedMilliseconds>=nextHeartbeatAt){uploadRequest=false;CloudHeartbeatReply reply=await transport.HeartbeatAsync(c,shutdown.Token).ConfigureAwait(false);if(reply==null||reply.LeaseSeconds<0||reply.LeaseSeconds>3600||reply.BackfillSeconds<0||reply.BackfillSeconds>300||reply.RequestedPacks==null||reply.RequestedPacks.Length>16||(reply.LeaseSeconds>0&&String.IsNullOrWhiteSpace(reply.SubscriptionId)))throw new InvalidDataException("心跳租约响应字段无效");int[] packs=reply.RequestedPacks;foreach(int pack in packs)if(pack<1||pack>16)throw new InvalidDataException("心跳租约包含无效 Pack");lock(sync){status.LastContactUtc=DateTime.UtcNow;}RecordSuccess();nextHeartbeatAt=scheduler.ElapsedMilliseconds+(reply.LeaseSeconds>0?Math.Min(15000,Math.Max(3000,reply.LeaseSeconds*500)):15000);if(!uploadHasFailed)backoff=1;string previousSubscription=subscription;subscription=reply.SubscriptionId;if(!String.Equals(previousSubscription,subscription,StringComparison.Ordinal)){lock(sync)sent.Clear();nextUploadAttemptAt=0;}requested=new HashSet<int>(packs);if(!String.IsNullOrEmpty(subscription)&&reply.LeaseSeconds>0){lease.Restart();leaseDeadline=(long)reply.LeaseSeconds*1000;Update("在线等待观看","收到观看租约",true);ScheduleWarmBackfill(c,reply,requested,subscription);}else{CancelBackfill();leaseDeadline=0;Update("在线等待观看","暂无观看订阅，仅发送心跳",false);}}
                     if(leaseDeadline>0&&lease.ElapsedMilliseconds<leaseDeadline&&subscription!=null){KeyValuePair<string,Pending>? candidate=null;string uploadSession=null;long uploadGeneration=0;if(scheduler.ElapsedMilliseconds>=nextUploadAttemptAt)lock(sync){CloudConfiguration current;try{current=configuration();}catch{current=null;}bool configurationCurrent=current!=null&&current.Enabled&&current.HasValidEndpoint&&!String.IsNullOrWhiteSpace(current.Token)&&ReferenceEquals(current,c);if(configurationCurrent){long now=Stopwatch.GetTimestamp();long oldest=Int64.MaxValue;foreach(KeyValuePair<string,Pending> pair in latest){Pending p=pair.Value;int period=p.Snapshot.PeriodSeconds.HasValue?p.Snapshot.PeriodSeconds.Value:0;double elapsed=(now-p.UpdatedTimestamp)/(double)Stopwatch.Frequency;if(!IsFresh(period,p.CapturedAgeSeconds,elapsed)||!requested.Contains(p.Snapshot.Pack)||(p.Snapshot.Source=="simulation"&&!current.IncludeSimulation))continue;long sentSeq;if((!sent.TryGetValue(pair.Key,out sentSeq)||sentSeq!=p.Sequence)&&p.UpdatedTimestamp<oldest){oldest=p.UpdatedTimestamp;candidate=pair;}}}if(candidate.HasValue){uploadSession=sessionId;uploadGeneration=sessionGeneration;}}if(candidate.HasValue){uploadRequest=true;Pending p=candidate.Value.Value;CloudSnapshotEnvelope envelope=CloudSnapshotEnvelope.From(p.Snapshot,c.DeviceId,uploadSession,p.Sequence);await transport.SendSnapshotAsync(c,new CloudSnapshotPost{SubscriptionId=subscription,Snapshot=envelope},shutdown.Token).ConfigureAwait(false);uploadRequest=false;uploadHasFailed=false;bool currentSession=false;lock(sync){Pending current;if(sessionGeneration==uploadGeneration&&sessionId==uploadSession&&latest.TryGetValue(candidate.Value.Key,out current)&&current.Sequence==p.Sequence){sent[candidate.Value.Key]=p.Sequence;status.Sent++;status.LastUploadUtc=DateTime.UtcNow;status.LastSampleUtc=p.Snapshot.ReceivedUtc;currentSession=true;}}if(currentSession)Update("上传中","最近快照已确认",true);backoff=1;nextUploadAttemptAt=0;continue;}Update("在线等待观看",scheduler.ElapsedMilliseconds<nextUploadAttemptAt?"上传失败，等待重试":"租约有效；没有可上传的新鲜快照",true);}else if(leaseDeadline>0){leaseDeadline=0;Update("在线等待观看","观看租约已过期，上传已暂停",false);}
                 }
                 catch(OperationCanceledException){if(shutdown.IsCancellationRequested)break;lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;Update("离线重试","云端请求已取消；本地记录继续工作",false);long wait=1000L*backoff;if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait;else nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait;backoff=Math.Min(60,backoff*2);}
-                catch(CloudHttpException e){CloudNetworkErrors.Write(e);lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;if(e.StatusCode==401||e.StatusCode==403){CancelBackfill();leaseDeadline=0;subscription=null;Update("认证失败",CloudNetworkErrors.Describe(e)+"；请检查设备令牌",false);nextHeartbeatAt=scheduler.ElapsedMilliseconds+60000;nextUploadAttemptAt=nextHeartbeatAt;}else{Update("离线重试",CloudNetworkErrors.Describe(e)+"；本地记录继续工作",false);int wait=backoff+jitter.Next(0,Math.Max(1,backoff));if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait*1000L;else{nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait*1000L;nextUploadAttemptAt=nextHeartbeatAt;}backoff=Math.Min(60,backoff*2);}}
-                catch(TimeoutException e){CloudNetworkErrors.Write(e);lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;Update("离线重试",CloudNetworkErrors.Describe(e)+"；本地记录继续工作",false);long wait=(backoff+jitter.Next(0,Math.Max(1,backoff)))*1000L;if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait;else{nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait;nextUploadAttemptAt=nextHeartbeatAt;}backoff=Math.Min(60,backoff*2);}
-                catch(WebException e){CloudNetworkErrors.Write(e);lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;Update("离线重试",CloudNetworkErrors.Describe(e)+"；本地记录继续工作",false);int wait=backoff+jitter.Next(0,Math.Max(1,backoff));if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait*1000L;else{nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait*1000L;nextUploadAttemptAt=nextHeartbeatAt;}backoff=Math.Min(60,backoff*2);}
-                catch(Exception e){CloudNetworkErrors.Write(e);lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;string description=CloudNetworkErrors.Describe(e);Update(description.StartsWith("协议错误",StringComparison.Ordinal)?"协议错误":"离线重试",description+"；本地记录继续工作",false);long wait=Math.Min(60,backoff+jitter.Next(0,Math.Max(1,backoff)));if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait*1000L;else{nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait*1000L;nextUploadAttemptAt=nextHeartbeatAt;}backoff=Math.Min(60,backoff*2);}
+                catch(CloudHttpException e){CloudNetworkErrors.Write(e);RecordFailure(e);lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;if(e.StatusCode==401||e.StatusCode==403){CancelBackfill();leaseDeadline=0;subscription=null;pendingRefresh=true;Update("认证失败","设备令牌被拒绝，正在尝试自动续期",false);nextHeartbeatAt=scheduler.ElapsedMilliseconds+60000;nextUploadAttemptAt=nextHeartbeatAt;}else if(e.StatusCode==429){Update("限流等待","云端限流，稍后重试",subscription!=null);nextHeartbeatAt=scheduler.ElapsedMilliseconds+30000;nextUploadAttemptAt=nextHeartbeatAt;}else{Update("离线重试",CloudNetworkErrors.Describe(e)+"；本地记录继续工作",false);int wait=backoff+jitter.Next(0,Math.Max(1,backoff));if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait*1000L;else{nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait*1000L;nextUploadAttemptAt=nextHeartbeatAt;}backoff=Math.Min(60,backoff*2);}}
+                catch(TimeoutException e){CloudNetworkErrors.Write(e);RecordFailure(e);lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;Update("离线重试",CloudNetworkErrors.Describe(e)+"；本地记录继续工作",false);long wait=(backoff+jitter.Next(0,Math.Max(1,backoff)))*1000L;if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait;else{nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait;nextUploadAttemptAt=nextHeartbeatAt;}backoff=Math.Min(60,backoff*2);}
+                catch(WebException e){CloudNetworkErrors.Write(e);RecordFailure(e);lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;Update("离线重试",CloudNetworkErrors.Describe(e)+"；本地记录继续工作",false);int wait=backoff+jitter.Next(0,Math.Max(1,backoff));if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait*1000L;else{nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait*1000L;nextUploadAttemptAt=nextHeartbeatAt;}backoff=Math.Min(60,backoff*2);}
+                catch(Exception e){CloudNetworkErrors.Write(e);RecordFailure(e);lock(sync){status.Failed++;}if(uploadRequest)uploadHasFailed=true;string description=CloudNetworkErrors.Describe(e);Update(description.StartsWith("协议错误",StringComparison.Ordinal)?"协议错误":"离线重试",description+"；本地记录继续工作",false);long wait=Math.Min(60,backoff+jitter.Next(0,Math.Max(1,backoff)));if(uploadRequest)nextUploadAttemptAt=scheduler.ElapsedMilliseconds+wait*1000L;else{nextHeartbeatAt=scheduler.ElapsedMilliseconds+wait*1000L;nextUploadAttemptAt=nextHeartbeatAt;}backoff=Math.Min(60,backoff*2);}
+                if(pendingRefresh)
+                {
+                    pendingRefresh=false;
+                    ICloudTokenRefresher refresher=transport as ICloudTokenRefresher;
+                    bool tooSoon=lastRefreshUtc.HasValue&&(DateTime.UtcNow-lastRefreshUtc.Value).TotalMinutes<5;
+                    if(refresher!=null&&!tooSoon)
+                    {
+                        try
+                        {
+                            CloudTokenRefreshReply renewed=await refresher.RefreshTokenAsync(c,shutdown.Token).ConfigureAwait(false);
+                            if(renewed!=null&&!String.IsNullOrWhiteSpace(renewed.DeviceToken))
+                            {
+                                // 先落盘成功再切换运行态：换证途中掉电不会留下「有令牌但云端不认」的状态。
+                                string previous=c.Token;c.Token=renewed.DeviceToken;
+                                try{c.Save();}catch{c.Token=previous;throw;}
+                                lastRefreshUtc=DateTime.UtcNow;
+                                Update("在线等待观看","设备令牌已自动续期，重新连接中",false);
+                                nextHeartbeatAt=scheduler.ElapsedMilliseconds;nextUploadAttemptAt=0;backoff=1;
+                            }
+                        }
+                        catch(Exception refreshError){CloudNetworkErrors.Write(refreshError);Update("认证失败","自动续期失败："+CloudNetworkErrors.Describe(refreshError),false);}
+                    }
+                }
                 await Delay(250);
             }
         }
         async Task Delay(int ms){try{await Task.Delay(ms,shutdown.Token).ConfigureAwait(false);}catch(OperationCanceledException){}}
         internal static bool IsFresh(int periodSeconds,double capturedAgeSeconds,double pendingElapsedSeconds){double maxAge=Math.Max(30,2.0*Math.Max(0,periodSeconds)+5);return capturedAgeSeconds+pendingElapsedSeconds<=maxAge;}
+        void RecordSuccess(){lock(sync){consecutiveFailures=0;lastSuccessUtc=DateTime.UtcNow;lastErrorStage=null;lastErrorCode=null;lastErrorHttp=0;lastErrorAt=null;lastErrorCount=0;}}
+        void RecordFailure(Exception e)
+        {
+            string stage=null;try{stage=CloudNetworkErrors.StageOf(e);}catch{}
+            CloudHttpException http=e as CloudHttpException;
+            lock(sync){consecutiveFailures++;if(stage==null)return;if(!String.Equals(stage,lastErrorStage,StringComparison.Ordinal)){lastErrorStage=stage;lastErrorAt=DateTime.UtcNow.ToString("o");lastErrorCount=0;}lastErrorCode=e.GetType().Name;lastErrorHttp=http!=null?http.StatusCode:0;lastErrorCount++;}
+        }
+        CloudClientReport BuildClientReport()
+        {
+            CloudConfiguration c=null;try{c=configuration();}catch{}
+            CloudClientReport r;
+            lock(sync)
+            {
+                r=new CloudClientReport{Version=typeof(CloudRealtimeService).Assembly.GetName().Version.ToString(),StartedUtc=startedUtc.ToString("o"),UptimeSec=(long)Math.Max(0,(DateTime.UtcNow-startedUtc).TotalSeconds),LocalTimeUtc=DateTime.UtcNow.ToString("o"),TzOffsetMin=(int)TimeZoneInfo.Local.GetUtcOffset(DateTime.Now).TotalMinutes,CloudEnabled=c!=null&&c.Enabled,TokenDecryptable=c!=null?!c.SavedTokenUnreadable:true,LastSuccessUtc=lastSuccessUtc.HasValue?lastSuccessUtc.Value.ToString("o"):null,ConsecutiveFailures=consecutiveFailures};
+                if(lastErrorStage!=null)r.LastError=new CloudClientError{Stage=lastErrorStage,Code=lastErrorCode,HttpStatus=lastErrorHttp,AtUtc=lastErrorAt,Count=lastErrorCount};
+            }
+            r.Source=new CloudClientSource{Session=sessionId};
+            return r;
+        }
         void Update(string state,string detail,bool subscribed){bool changed;lock(sync){changed=status.State!=state||status.Detail!=detail||status.HasSubscription!=subscribed||status.Merged!=merged||notifiedSent!=status.Sent||notifiedFailed!=status.Failed||notifiedContact!=status.LastContactUtc||notifiedUpload!=status.LastUploadUtc;status.State=state;status.Detail=detail;status.HasSubscription=subscribed;status.Merged=merged;notifiedSent=status.Sent;notifiedFailed=status.Failed;notifiedContact=status.LastContactUtc;notifiedUpload=status.LastUploadUtc;}if(changed){EventHandler h=StatusChanged;if(h!=null)try{h(this,EventArgs.Empty);}catch{}}}
         static CloudRealtimeStatus Copy(CloudRealtimeStatus x){return new CloudRealtimeStatus{State=x.State,Detail=x.Detail,LastContactUtc=x.LastContactUtc,LastUploadUtc=x.LastUploadUtc,LastSampleUtc=x.LastSampleUtc,HasSubscription=x.HasSubscription,Sent=x.Sent,Failed=x.Failed,Merged=x.Merged};}
         public void Dispose(){lock(sync){if(disposed)return;disposed=true;}CancelBackfill();shutdown.Cancel();try{worker.GetAwaiter().GetResult();}catch{}Task pending;lock(backfillGate)pending=backfillTask;try{if(pending!=null)pending.GetAwaiter().GetResult();}catch{}shutdown.Dispose();}
@@ -165,6 +222,22 @@ namespace BmsSerialDemo
             string root=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,".cloud-test");if(Directory.Exists(root))Directory.Delete(root,true);Directory.CreateDirectory(root);try
             {
                 CloudConfiguration persisted=new CloudConfiguration{Enabled=true,IncludeSimulation=false,DeviceId="device-test",Alias="lab",Endpoint="https://example.invalid",Token="token-must-not-appear",SavePath=Path.Combine(root,"cloud.txt")};persisted.Save();string raw=File.ReadAllText(persisted.SavePath);if(raw.Contains(persisted.Token))throw new Exception("cloud token stored as clear text");CloudConfiguration loaded=CloudConfiguration.Load(persisted.SavePath,persisted.DeviceId);if(!loaded.Enabled||loaded.Token!=persisted.Token||!loaded.HasValidEndpoint)throw new Exception("cloud DPAPI configuration roundtrip failed");loaded.Endpoint="http://127.0.0.1";if(loaded.HasValidEndpoint)throw new Exception("non-HTTPS cloud endpoint was accepted");
+                // 凭据导出/导入：换机与「DPAPI 解不开」时的兜底。四条必须成立：
+                // ① 令牌不以明文落盘；② 正确口令可完整往返；③ 错口令被拒；④ 篡改被 MAC 拦下。
+                CloudConfiguration exportSource=new CloudConfiguration{Enabled=true,DeviceId="device-export",Endpoint="https://example.invalid",Alias="实验室",Token="secret-token-value",SavePath=Path.Combine(root,"export.txt")};
+                string bundle=CloudCredentialBundle.Export(exportSource,"correct horse battery");
+                if(bundle.Contains("secret-token-value"))throw new Exception("凭据导出把令牌写成了明文");
+                CloudConfiguration imported=CloudCredentialBundle.Import(bundle,"correct horse battery",Path.Combine(root,"imported.txt"));
+                if(imported.DeviceId!="device-export"||imported.Token!="secret-token-value"||imported.Endpoint!="https://example.invalid")throw new Exception("凭据导出/导入往返失败");
+                bool wrongPasswordRejected=false;try{CloudCredentialBundle.Import(bundle,"totally wrong password",Path.Combine(root,"x.txt"));}catch(InvalidOperationException){wrongPasswordRejected=true;}
+                if(!wrongPasswordRejected)throw new Exception("错误口令没有被拒绝");
+                string[] bundleLines=bundle.Split('\n');int ctIndex=-1;for(int i=0;i<bundleLines.Length;i++)if(bundleLines[i].StartsWith("ct=",StringComparison.Ordinal)){ctIndex=i;break;}
+                if(ctIndex<0)throw new Exception("凭据文件缺少密文字段");
+                char[] ctChars=bundleLines[ctIndex].ToCharArray();ctChars[3]=ctChars[3]=='A'?'B':'A';bundleLines[ctIndex]=new string(ctChars);
+                bool tamperRejected=false;try{CloudCredentialBundle.Import(String.Join("\n",bundleLines),"correct horse battery",Path.Combine(root,"y.txt"));}catch(InvalidOperationException){tamperRejected=true;}
+                if(!tamperRejected)throw new Exception("被篡改的密文没有被 MAC 拦下");
+                addedChecks++;
+                
                 FakeCloudTransport fake=new FakeCloudTransport();CloudConfiguration runtime=new CloudConfiguration{Enabled=true,DeviceId="device-test",Alias="lab",Endpoint="https://example.invalid",Token="fake-only"};using(CloudRealtimeService service=new CloudRealtimeService(delegate{return runtime;},fake))
                 {
                     RealtimeSnapshot snapshot=TestSnapshot("serial",DateTime.UtcNow);service.Publish(snapshot);DateTime limit=DateTime.UtcNow.AddSeconds(4);while(fake.Uploads<1&&DateTime.UtcNow<limit)Thread.Sleep(25);if(fake.Uploads!=1)throw new Exception("fake lease did not deliver latest snapshot");CloudSnapshotPost sent=fake.Last;if(sent==null||sent.SubscriptionId!="fake-subscription"||sent.Snapshot.DeviceId!="device-test"||sent.Snapshot.Sequence!=1||sent.Snapshot.Source!="serial")throw new Exception("uploaded snapshot contract fields failed");string missingAlert=SerializeEnvelope(sent.Snapshot);if(!missingAlert.Contains("\"alarmObservationAvailable\":false")||!missingAlert.Contains("\"alarmObservation\":null")||!missingAlert.Contains("\"periodSeconds\":2")||!missingAlert.Contains("\"capturedUtc\":\"" )||!missingAlert.Contains("Z\""))throw new Exception("cloud snapshot omitted UTC interval or explicit missing-alert status");Frame af=Protocol.Decode(Simulator.Respond(1,0x44,1));AlarmSnapshot alarm=AlarmSnapshot.Capture(af,"serial",1,DateTime.UtcNow.AddMinutes(-1),"test alarm",6,2);string withAlert=SerializeEnvelope(CloudSnapshotEnvelope.From(snapshot,"device-test","session",2,alarm));if(!withAlert.Contains("\"observedUtc\":\"")||!withAlert.Contains("\"acquisitionRound\":6")||!withAlert.Contains("\"alarmObservationAvailable\":true")||!withAlert.Contains("Z\""))throw new Exception("cloud alert did not preserve its independent UTC observation metadata");

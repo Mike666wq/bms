@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.2.8.0")]
-[assembly: AssemblyFileVersion("1.2.8.0")]
+[assembly: AssemblyVersion("1.2.9.0")]
+[assembly: AssemblyFileVersion("1.2.9.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -120,7 +120,8 @@ namespace BmsSerialDemo
         CloudRealtimeService cloudPublisher;
         CloudConfiguration cloudConfiguration;
         CloudPage cloudPage;
-        readonly string cloudSettingsPath=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"settings","cloud-connection.txt");
+        // 凭据放 ProgramData：安装目录会被整包替换，放那里等于每次升级都要重新注册。
+        readonly string cloudSettingsPath=Path.Combine(CloudIdentity.ResolveSettingsDirectory("BmsSerialDemo",AppDomain.CurrentDomain.BaseDirectory),"cloud-connection.txt");
         bool previewMode;
         // C2：诊断截图/预览使用隔离数据根（临时目录）时置位——禁止把模拟快照发布到真实云端。
         readonly bool diagnosticIsolation;
@@ -170,7 +171,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.7"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.9"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             deviceId=LoadDeviceId();
             InitializePartitionManagers();
@@ -236,38 +237,14 @@ namespace BmsSerialDemo
         }
         string LoadDeviceId()
         {
-            // 只读安装目录或受限账户下不得抛异常阻断启动：主路径读取→备用路径读取→新生成并尽力持久化→内存回退。
+            // 稳定位置优先（ProgramData），旧位置只读兼容并一次性迁移：升级换目录不再导致重新注册。
             // 读取校验与 PartitionCycleManager 的要求一致（16-64 位字母/数字/下划线/连字符），避免无效内容在后续构造时才失败。
-            string primary=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"settings","device-id.txt");
-            string fallback=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BmsSerialDemo","settings","device-id.txt");
-            string value;
-            if(TryReadDeviceId(primary,out value))return value;
-            if(TryReadDeviceId(fallback,out value))return value;
-            string id=Guid.NewGuid().ToString("N");
-            if(TryWriteDeviceId(primary,id))return id;
-            if(TryWriteDeviceId(fallback,id))return id;
-            CrashLogger.Write("设备标识无法持久化，本次运行使用内存标识（重启后会生成新标识）",new IOException(primary+" 与 "+fallback+" 均不可写"));
-            return id;
+            return CloudIdentity.LoadOrCreateDeviceId("BmsSerialDemo",AppDomain.CurrentDomain.BaseDirectory,
+                delegate(string candidate){return DeviceIdPattern.IsMatch(candidate);},
+                delegate(string from,string to){CrashLogger.Write("设备标识已迁移到稳定位置（此后升级/重装无需重新注册）："+from+" → "+to,null);},
+                delegate(string id){CrashLogger.Write("设备标识无法持久化，本次运行使用临时标识（重启后会变，云端会显示为新设备）："+id,new IOException("ProgramData、LocalAppData 与安装目录的 settings 均不可写"));});
         }
         static readonly Regex DeviceIdPattern=new Regex("^[A-Za-z0-9_-]{16,64}$",RegexOptions.CultureInvariant);
-        static bool TryReadDeviceId(string path,out string value)
-        {
-            value=null;
-            try
-            {
-                if(!File.Exists(path))return false;
-                string candidate=File.ReadAllText(path).Trim();
-                if(DeviceIdPattern.IsMatch(candidate)){value=candidate;return true;}
-                CrashLogger.Write("设备标识文件内容无效，已忽略："+path,new FormatException("device-id 必须为 16-64 位字母/数字/下划线/连字符"));
-            }
-            catch(Exception e){CrashLogger.Write("设备标识文件读取失败："+path,e);}
-            return false;
-        }
-        static bool TryWriteDeviceId(string path,string id)
-        {
-            try{Directory.CreateDirectory(Path.GetDirectoryName(path));File.WriteAllText(path,id,new UTF8Encoding(false));return true;}
-            catch(Exception e){CrashLogger.Write("设备标识文件写入失败："+path,e);return false;}
-        }
         void LoadPeriodSettings(bool allowLegacyImport)
         {
             int saved;try{saved=Int32.Parse(File.ReadAllText(periodSettingsPath).Trim());if(saved>=1&&saved<=86400){period.Value=saved;return;}}catch{}

@@ -6,7 +6,7 @@
 - 内置**模拟设备**，没有实机也能完整演示与自测；
 - 数据落盘为 **SQLite**，支持按周期**分期分库**与流式导出。
 
-> 当前版本：1.2.8。源码、构建脚本、云端模块与最新 Release 均以本目录为准；运行包由 GitHub Actions 从标签源码在干净 Windows Runner 上构建并发布。协议依据《串口通信协议 V1.1》，针对特定 BMS 设备。开发进度见 [CHANGELOG.md](CHANGELOG.md)。
+> 当前版本：1.2.9。源码、构建脚本、云端模块与最新 Release 均以本目录为准；运行包由 GitHub Actions 从标签源码在干净 Windows Runner 上构建并发布。协议依据《串口通信协议 V1.1》，针对特定 BMS 设备。开发进度见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 界面预览
 
