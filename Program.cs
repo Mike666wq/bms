@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.2.9.0")]
-[assembly: AssemblyFileVersion("1.2.9.0")]
+[assembly: AssemblyVersion("1.2.10.0")]
+[assembly: AssemblyFileVersion("1.2.10.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -121,7 +121,10 @@ namespace BmsSerialDemo
         CloudConfiguration cloudConfiguration;
         CloudPage cloudPage;
         // 凭据放 ProgramData：安装目录会被整包替换，放那里等于每次升级都要重新注册。
-        readonly string cloudSettingsPath=Path.Combine(CloudIdentity.ResolveSettingsDirectory("BmsSerialDemo",AppDomain.CurrentDomain.BaseDirectory),"cloud-connection.txt");
+        // 换路径必须连内容一起搬，否则老用户会看到「服务地址空了、令牌没了」。
+        readonly string cloudSettingsPath=CloudSettingsMigration.AdoptConfig(
+            Path.Combine(CloudIdentity.ResolveSettingsDirectory("BmsSerialDemo",AppDomain.CurrentDomain.BaseDirectory),"cloud-connection.txt"),
+            Path.Combine(CloudIdentity.InstallSettings(AppDomain.CurrentDomain.BaseDirectory),"cloud-connection.txt"));
         bool previewMode;
         // C2：诊断截图/预览使用隔离数据根（临时目录）时置位——禁止把模拟快照发布到真实云端。
         readonly bool diagnosticIsolation;
@@ -171,7 +174,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.9"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.10"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             deviceId=LoadDeviceId();
             InitializePartitionManagers();

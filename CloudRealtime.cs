@@ -237,6 +237,33 @@ namespace BmsSerialDemo
                 bool tamperRejected=false;try{CloudCredentialBundle.Import(String.Join("\n",bundleLines),"correct horse battery",Path.Combine(root,"y.txt"));}catch(InvalidOperationException){tamperRejected=true;}
                 if(!tamperRejected)throw new Exception("被篡改的密文没有被 MAC 拦下");
                 addedChecks++;
+                // 旧配置搬迁：老用户升级后不能丢令牌、不能换身份。
+                string legacyConfig=Path.Combine(root,"legacy","cloud-connection.txt");
+                Directory.CreateDirectory(Path.GetDirectoryName(legacyConfig));
+                new CloudConfiguration{Enabled=true,DeviceId="device-legacy-001",Endpoint="https://example.invalid",Alias="旧机器",Token="legacy-token",SavePath=legacyConfig}.Save();
+                string adoptedPath=Path.Combine(root,"newpath","cloud-connection.txt");
+                if(!String.Equals(CloudSettingsMigration.AdoptConfig(adoptedPath,legacyConfig),adoptedPath))throw new Exception("配置搬迁返回了意外路径");
+                CloudConfiguration adopted=CloudConfiguration.Load(adoptedPath,null);
+                if(adopted.DeviceId!="device-legacy-001"||adopted.Token!="legacy-token")throw new Exception("配置搬迁没有保住身份与令牌");
+                if(!File.Exists(legacyConfig))throw new Exception("配置搬迁删除了旧文件（旧文件必须保留）");
+                // 新位置已经配好令牌时，绝不能被旧配置覆盖。
+                string keepPath=Path.Combine(root,"keep","cloud-connection.txt");
+                Directory.CreateDirectory(Path.GetDirectoryName(keepPath));
+                new CloudConfiguration{DeviceId="device-newer-0001",Endpoint="https://example.invalid",Alias="新",Token="new-token",SavePath=keepPath}.Save();
+                CloudSettingsMigration.AdoptConfig(keepPath,legacyConfig);
+                if(CloudConfiguration.Load(keepPath,null).Token!="new-token")throw new Exception("配置搬迁覆盖了已配置好的新位置");
+                // 旧身份只在旧配置确实配置过令牌时才采纳；空壳配置不许冒充。
+                string adoptedId;
+                if(!CloudSettingsMigration.TryReadLegacyIdentity(legacyConfig,delegate(string v){return v.Length>=16;},out adoptedId)||adoptedId!="device-legacy-001")throw new Exception("旧配置身份识别失败");
+                string emptyLegacy=Path.Combine(root,"emptylegacy","cloud-connection.txt");
+                Directory.CreateDirectory(Path.GetDirectoryName(emptyLegacy));
+                new CloudConfiguration{DeviceId="device-empty-0001",Endpoint="https://",Alias="",Token="",SavePath=emptyLegacy}.Save();
+                string ignoredId;
+                // 没有令牌的旧配置同样承载着升级前的编号，身份照样采纳；能不能覆盖目标由 HasToken 决定。
+                string emptyId;if(!CloudSettingsMigration.TryReadLegacyIdentity(emptyLegacy,delegate(string v){return v.Length>=16;},out emptyId)||emptyId!="device-empty-0001")throw new Exception("无令牌旧配置的身份未被识别");
+                if(CloudSettingsMigration.HasToken(keepPath)!=true)throw new Exception("已配置目标应被识别为已有令牌");
+                if(CloudSettingsMigration.HasToken(emptyLegacy)!=false)throw new Exception("空壳配置不该被识别为已有令牌");
+                addedChecks++;
                 
                 FakeCloudTransport fake=new FakeCloudTransport();CloudConfiguration runtime=new CloudConfiguration{Enabled=true,DeviceId="device-test",Alias="lab",Endpoint="https://example.invalid",Token="fake-only"};using(CloudRealtimeService service=new CloudRealtimeService(delegate{return runtime;},fake))
                 {
