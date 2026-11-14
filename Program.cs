@@ -183,6 +183,30 @@ namespace BmsSerialDemo
         public MainForm() : this(null,null) { }
         internal MainForm(string testDataRoot,string testPeriodSettingsPath)
         {
+            // 排障开关：只打印身份路径解析结果就退出，用来确认现场到底落在哪个目录。
+            if(Array.IndexOf(Environment.GetCommandLineArgs(),"--dump-paths")>=0)
+            {
+                try
+                {
+                    string resolved=CloudIdentity.ResolveSettingsDirectory("BmsSerialDemo",AppDomain.CurrentDomain.BaseDirectory);
+                    File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"bms-paths.txt"),
+                        "BaseDirectory="+AppDomain.CurrentDomain.BaseDirectory+Environment.NewLine+
+                        "cloudSettingsPath="+cloudSettingsPath+Environment.NewLine+
+                        "resolved="+resolved+Environment.NewLine+
+                        "resolvedExists="+Directory.Exists(resolved)+Environment.NewLine+
+                        "settingsDirExists="+Directory.Exists(Path.GetDirectoryName(cloudSettingsPath))+Environment.NewLine+
+                        "user="+Environment.UserName+Environment.NewLine+
+                        "x64="+Environment.Is64BitProcess+Environment.NewLine+
+                        "commonAppData="+Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)+Environment.NewLine+
+                        "localAppData="+Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)+Environment.NewLine+
+                        "machineSettings="+CloudIdentity.MachineSettings("BmsSerialDemo")+Environment.NewLine+
+                        "machineUsable="+CloudIdentity.IsUsable(CloudIdentity.MachineSettings("BmsSerialDemo"))+Environment.NewLine+
+                        "userSettings="+CloudIdentity.UserSettings("BmsSerialDemo")+Environment.NewLine+
+                        "userUsable="+CloudIdentity.IsUsable(CloudIdentity.UserSettings("BmsSerialDemo")));
+                }
+                catch(Exception ex){try{File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"bms-paths.txt"),"EX "+ex);}catch{}}
+                Environment.Exit(0);
+            }
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
             AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.5"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
