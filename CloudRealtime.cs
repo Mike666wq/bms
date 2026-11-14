@@ -357,6 +357,9 @@ namespace BmsSerialDemo
                     Update("接入被拒绝",String.IsNullOrEmpty(reply.Message)?"管理员拒绝了该设备":reply.Message,false);
                     await Delay(30000);return false;
                 }
+                // 认领凭据必须落盘：否则进程重启会生成新 secret，而云端那条记录的哈希对不上，
+                // 结果就是每次启动都 401、永远批准不了。
+                try{lock(enrollmentGate)CloudEnrollmentStore.Save(state);}catch(Exception saveError){CloudNetworkErrors.Write(saveError);}
                 Update("等待批准","已提交接入申请，等待管理员在云端网页批准",false);
                 return false;
             }
