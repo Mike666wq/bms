@@ -203,7 +203,7 @@ namespace BmsSerialDemo
             Add(bar, "串口", ports); Button refresh = new Button { Text = "刷新", Width = 55, Height = 26, FlatStyle = FlatStyle.Flat, BackColor = Color.White }; bar.Controls.Add(refresh);
             Add(bar, "波特率", baud); Add(bar, "地址", address); Add(bar, "Pack", pack); bar.Controls.Add(all); bar.Controls.Add(simulate);
             Panel masthead = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(28, 57, 91) };
-            Label brand = new Label { Text = "BMS  /  实时监控  ·  1.2.7", AutoSize = true, Font = BrandFont, ForeColor = Color.White, Location = new Point(18, 9) };
+            Label brand = new Label { Text = "BMS  /  实时监控  ·  " + typeof(MainForm).Assembly.GetName().Version.ToString(3), AutoSize = true, Font = BrandFont, ForeColor = Color.White, Location = new Point(18, 9) };
             connect.Anchor = AnchorStyles.Top | AnchorStyles.Right; connect.BackColor=Color.FromArgb(65,111,232);connect.ForeColor=Color.White;masthead.Controls.Add(connect); masthead.Controls.Add(brand);
             masthead.Resize += delegate { connect.Location = new Point(masthead.ClientSize.Width - connect.Width - 16, 7); };
             TableLayoutPanel shell = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, BackColor = Color.FromArgb(239, 244, 249) };
