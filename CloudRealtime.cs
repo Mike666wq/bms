@@ -346,6 +346,9 @@ namespace BmsSerialDemo
                     c.Token=reply.DeviceToken;c.DeviceId=reply.DeviceId;
                     try{c.Save();}catch{c.Token=previousToken;c.DeviceId=previousId;throw;}
                     state.DeviceId=reply.DeviceId;state.State="active";state.ProtocolVersion=2;
+                    // 云端分配的编号必须写回 device-id.txt：Program.cs 每次启动都用它覆盖
+                    // c.DeviceId，不写回的话下次启动又变回旧编号，云端判定 DEVICE_MISMATCH(403)。
+                    try{CloudIdentity.WriteDeviceIdTo(Path.GetDirectoryName(enrollmentPath),reply.DeviceId);}catch(Exception idError){CloudNetworkErrors.Write(idError);}
                     if(reply.Config!=null)state.ApplyConfig(reply.Config,reply.ConfigVersion.HasValue?reply.ConfigVersion.Value:0);
                     state.ClaimSecret=null;
                     try{lock(enrollmentGate)CloudEnrollmentStore.Save(state);}catch(Exception e){CloudNetworkErrors.Write(e);}
