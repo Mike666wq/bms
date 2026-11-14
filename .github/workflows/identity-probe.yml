@@ -53,6 +53,11 @@ jobs:
           $dir = Split-Path $exe -Parent
           $content = Get-Content (Join-Path $dir 'bms-paths.txt') -Raw
           Write-Host $content
+          $m = [regex]::Match($content, "resolved=(.+)")
+          if ($m.Success) { Write-Host "::notice title=IdentityResolved::$($m.Groups[1].Value.Trim())" }
+          $mu = [regex]::Match($content, "machineUsable=(w+)")
+          $uu = [regex]::Match($content, "userUsable=(w+)")
+          Write-Host "::notice title=UsableFlags::machine=$($mu.Groups[1].Value) user=$($uu.Groups[1].Value)"
           if ($content -match 'resolved=C:\\ProgramData\\BmsSerialDemo\\settings') {
             Write-Host 'PASS: 身份落在 ProgramData（升级不会换编号）'
           } elseif ($content -match 'resolved=C:\\Users\\.+\\AppData\\Local\\BmsSerialDemo\\settings') {
