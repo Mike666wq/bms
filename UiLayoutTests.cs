@@ -77,10 +77,12 @@ namespace BmsSerialDemo
             Check(cloud!=null,label+"云端连接页面存在");
             tabs.SelectedTab=cloud;PerformTreeLayout(cloud);Application.DoEvents();
             StyledActionButton diagnose=FindControl<StyledActionButton>(cloud,c=>c.Text=="连接诊断");
-            StyledActionButton saveCloud=FindControl<StyledActionButton>(cloud,c=>c.Text=="保存连接设置");
-            Check(diagnose!=null&&saveCloud!=null,label+"连接诊断和保存按钮存在");
-            Check(diagnose.Parent.ClientRectangle.Contains(diagnose.Bounds)&&saveCloud.Parent.ClientRectangle.Contains(saveCloud.Bounds),label+"诊断与保存按钮完整处于操作区域");
-            Check(!diagnose.Bounds.IntersectsWith(saveCloud.Bounds),label+"诊断按钮没有与保存按钮重叠");
+            // 零配置改造后不再有「保存连接设置」：页面只保留「重新申请接入」与「连接诊断」。
+            StyledActionButton reclaimCloud=FindControl<StyledActionButton>(cloud,c=>c.Text=="重新申请接入");
+            Check(diagnose!=null&&reclaimCloud!=null,label+"连接诊断和重新接入按钮存在");
+            Check(diagnose.Parent.ClientRectangle.Contains(diagnose.Bounds)&&reclaimCloud.Parent.ClientRectangle.Contains(reclaimCloud.Bounds),label+"诊断与重新接入按钮完整处于操作区域");
+            Check(!diagnose.Bounds.IntersectsWith(reclaimCloud.Bounds),label+"诊断按钮没有与重新接入按钮重叠");
+            Check(FindControl<TextBox>(cloud,c=>c.UseSystemPasswordChar)==null,label+"云端页不再有令牌输入框");
         }
 
         static T FindControl<T>(Control root,Func<T,bool> match) where T:Control

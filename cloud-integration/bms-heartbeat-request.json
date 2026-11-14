@@ -1,1 +1,1 @@
-{"deviceId":"a0234f17c8d94b1e","alias":"电池组A"}
+{"deviceId":"a0234f17c8d94b1e","alias":"电池组A","module":"bms","schemaVersion":1,"protocolVersion":2,"machineKey":"mk_0123456789abcdef0123456789abcdef","reportedConfigVersion":3,"client":{"version":"1.2.10","cloudEnabled":true,"tokenDecryptable":true,"consecutiveFailures":0}}

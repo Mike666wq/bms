@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.2.10.0")]
-[assembly: AssemblyFileVersion("1.2.10.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -120,6 +120,9 @@ namespace BmsSerialDemo
         CloudRealtimeService cloudPublisher;
         CloudConfiguration cloudConfiguration;
         CloudPage cloudPage;
+        // 云端只有一个站点，地址是编译期常量：现场不再需要填服务地址。
+        // 保留命令行 --cloud-probe 覆盖仅用于排障，不影响正常运行路径。
+        internal const string CloudEndpoint="https://pv-ac.bbben.xyz";
         // 凭据放 ProgramData：安装目录会被整包替换，放那里等于每次升级都要重新注册。
         // 换路径必须连内容一起搬，否则老用户会看到「服务地址空了、令牌没了」。
         readonly string cloudSettingsPath=CloudSettingsMigration.AdoptConfig(
@@ -174,12 +177,17 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.2.10"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.0"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             deviceId=LoadDeviceId();
             InitializePartitionManagers();
             monthlyCatalog=new MonthlyCatalog(dataRoot,deviceId);
-            cloudConfiguration=CloudConfiguration.Load(cloudSettingsPath,deviceId);cloudConfiguration.DeviceId=deviceId;cloudPublisher=new CloudRealtimeService(delegate{return cloudConfiguration;},null,ReadCloudHistory);publisher=cloudPublisher;
+            cloudConfiguration=CloudConfiguration.Load(cloudSettingsPath,deviceId);cloudConfiguration.DeviceId=deviceId;
+            // 地址与开关都由程序决定，不再读本地配置：云端才是唯一真相源。
+            // 诊断隔离（--root= 临时数据根）时保持关闭，避免把模拟数据发到真实云端。
+            cloudConfiguration.Endpoint=CloudEndpoint;
+            cloudConfiguration.Enabled=!diagnosticIsolation;
+            cloudPublisher=new CloudRealtimeService(delegate{return cloudConfiguration;},null,ReadCloudHistory,Path.GetDirectoryName(cloudSettingsPath));publisher=cloudPublisher;
             LoadPeriodSettings(testDataRoot==null);
             FlowLayoutPanel bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = true, Padding = new Padding(8, 5, 8, 3), BackColor = Color.FromArgb(247, 250, 253) };
             Add(bar, "串口", ports); Button refresh = new Button { Text = "刷新", Width = 55, Height = 26, FlatStyle = FlatStyle.Flat, BackColor = Color.White }; bar.Controls.Add(refresh);
