@@ -72,7 +72,7 @@ jobs:
           $second = $m.Groups[1].Value.Trim()
           Write-Host "first =$first"
           Write-Host "second=$second"
-          if ($first -eq $second -and $first.StartsWith('mk_')) {
+          if ($first -eq $second -and $first.Length -ge 8) {
             Write-Host "::notice title=UpgradeStable::PASS deviceId 未变 $first"
           } else {
             Write-Host "::error title=UpgradeBroke::FAIL 升级后编号变了 first=$first second=$second"
