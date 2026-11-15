@@ -1,4 +1,4 @@
-﻿param([string]$Version='1.3.19', [string]$BuildDirectory='.testing\stage2')
+﻿param([string]$Version='1.3.20', [string]$BuildDirectory='.testing\stage2')
 $ErrorActionPreference = 'Stop'
 $demoRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $buildRoot = [IO.Path]::GetFullPath((Join-Path $demoRoot $BuildDirectory))
