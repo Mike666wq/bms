@@ -2,3 +2,9 @@
 2026-11-15 01:34:43 | C:\Users\bbben\AppData\Local\BmsSerialDemo\settings | UnauthorizedAccessException hr=0x80070005 | 对路径“C:\Users\bbben\AppData\Local\BmsSerialDemo\settings”的访问被拒绝。 | user=bbben | x64=True
 2026-11-15 01:52:39 | C:\ProgramData\BmsSerialDemo\settings | UnauthorizedAccessException hr=0x80070005 | 对路径“C:\ProgramData\BmsSerialDemo\settings\.write-probe-e073cbdd84e54425a92695bf6627a3f7”的访问被拒绝。 | user=bbben | x64=True
 2026-11-15 01:52:39 | C:\Users\bbben\AppData\Local\BmsSerialDemo\settings | UnauthorizedAccessException hr=0x80070005 | 对路径“C:\Users\bbben\AppData\Local\BmsSerialDemo\settings”的访问被拒绝。 | user=bbben | x64=True
+2026-11-15 10:17:05 | C:\ProgramData\BmsSerialDemo\settings | UnauthorizedAccessException hr=0x80070005 | 对路径“C:\ProgramData\BmsSerialDemo\settings\.write-probe-d3e35c59a40d47db9a1574534dc55bae”的访问被拒绝。 | user=bbben | x64=True
+2026-11-15 10:17:05 | C:\Users\bbben\AppData\Local\BmsSerialDemo\settings | UnauthorizedAccessException hr=0x80070005 | 对路径“C:\Users\bbben\AppData\Local\BmsSerialDemo\settings”的访问被拒绝。 | user=bbben | x64=True
+2026-11-15 10:29:47 | C:\ProgramData\BmsSerialDemo\settings | UnauthorizedAccessException hr=0x80070005 | 对路径“C:\ProgramData\BmsSerialDemo\settings\.write-probe-2e9c136dafb9429ebc9c8617a417a610”的访问被拒绝。 | user=bbben | x64=True
+2026-11-15 10:29:47 | C:\Users\bbben\AppData\Local\BmsSerialDemo\settings | UnauthorizedAccessException hr=0x80070005 | 对路径“C:\Users\bbben\AppData\Local\BmsSerialDemo\settings”的访问被拒绝。 | user=bbben | x64=True
+2026-11-15 10:30:37 | C:\ProgramData\BmsSerialDemo\settings | UnauthorizedAccessException hr=0x80070005 | 对路径“C:\ProgramData\BmsSerialDemo\settings\.write-probe-cfa5cc7c951f47faa2bdaa168451e4d5”的访问被拒绝。 | user=bbben | x64=True
+2026-11-15 10:30:37 | C:\Users\bbben\AppData\Local\BmsSerialDemo\settings | UnauthorizedAccessException hr=0x80070005 | 对路径“C:\Users\bbben\AppData\Local\BmsSerialDemo\settings”的访问被拒绝。 | user=bbben | x64=True

@@ -95,7 +95,7 @@ namespace BmsSerialDemo
                 return box.Text;
             }
         }
-        static GroupBox Card(string heading){return new GroupBox{Text=heading,Width=720,Height=heading=="连接状态"?410:heading=="云端授权"?262:132,BackColor=Color.White,Padding=new Padding(10,14,10,8),Margin=new Padding(0,0,0,10),ForeColor=Color.FromArgb(34,70,108),Font=CardGroupFont};}
+        static GroupBox Card(string heading){return new GroupBox{Text=heading,Width=720,Height=heading=="连接状态"?410:heading=="云端授权"?262:206,BackColor=Color.White,Padding=new Padding(10,14,10,8),Margin=new Padding(0,0,0,10),ForeColor=Color.FromArgb(34,70,108),Font=CardGroupFont};}
         static TableLayoutPanel FieldGrid(){TableLayoutPanel p=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,ColumnCount=2,BackColor=Color.White,Padding=new Padding(6,5,6,8),Font=BodyFont};p.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,160));p.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));return p;}
         static void AddField(TableLayoutPanel panel,string caption,Control field,int row){panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));Label label=new Label{Text=caption,AutoSize=true,Margin=new Padding(4,9,8,4),ForeColor=Color.FromArgb(88,105,125),Font=BodyFont};field.Margin=new Padding(3,3,4,3);panel.Controls.Add(label,0,row);panel.Controls.Add(field,1,row);}
         static void AddStatus(TableLayoutPanel panel,string heading,Control value,int row){panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));Label label=new Label{Text=heading,AutoSize=true,Margin=new Padding(4,7,6,6),ForeColor=Color.FromArgb(100,116,135),Font=BodyFont};value.Margin=new Padding(4,7,4,6);value.Font=heading=="当前状态"?StatusHeadingFont:BodyFont;panel.Controls.Add(label,0,row);panel.Controls.Add(value,1,row);}
@@ -109,7 +109,7 @@ namespace BmsSerialDemo
             if(MessageBox.Show(this,"将清除本机保存的接入凭据，并重新向云端提交接入申请。\r\n管理员批准后自动恢复，期间本地采集与记录不受影响。\r\n\r\n继续？","重新申请接入",MessageBoxButtons.OKCancel,MessageBoxIcon.Question)!=DialogResult.OK)return;
             try
             {
-                CloudConfiguration c=getConfig();c.Token="";c.Save();saveConfig(c);
+                CloudConfiguration c=getConfig();c.Alias=(aliasValue.Text??"").Trim();c.Enabled=cloudEnabled.Checked;c.Token="";c.Save();saveConfig(c);
                 service.ResetEnrollment();
                 RefreshStatus();
                 MessageBox.Show(this,"已重新提交接入申请。请在云端「待批准设备」中确认。","重新申请接入",MessageBoxButtons.OK,MessageBoxIcon.Information);
@@ -118,7 +118,7 @@ namespace BmsSerialDemo
         }
         void ServiceStatusChanged(object sender,EventArgs e){if(IsDisposed||!IsHandleCreated||!Visible)return;try{BeginInvoke((Action)RefreshStatus);}catch{}}
         void RefreshStatus(){if(disposed)return;CloudRealtimeStatus s=service.Status;
-            aliasValue.Text=service.EnrollmentAlias;machineValue.Text=service.MachineKeyMasked;accessValue.Text=service.EnrollmentAccess;state2Value.Text=service.EnrollmentState;
+            if(!aliasValue.Focused&&String.IsNullOrWhiteSpace(aliasValue.Text))aliasValue.Text=service.EnrollmentAlias;machineValue.Text=service.MachineKeyMasked;accessValue.Text=service.EnrollmentAccess;state2Value.Text=service.EnrollmentState;
             state.Text=s.State;contact.Text=s.LastContactUtc.HasValue?s.LastContactUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"):"尚无成功联系";subscription.Text=s.HasSubscription?"有效观看租约":"无有效租约";upload.Text=s.LastUploadUtc.HasValue?s.LastUploadUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"):"尚无上传";sample.Text=s.LastSampleUtc.HasValue?s.LastSampleUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"):"尚无上传样本";counters.Text=s.Sent+" / "+s.Failed+" / "+s.Merged;detail.Text=s.Detail;}
     }
 }
