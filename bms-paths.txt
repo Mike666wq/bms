@@ -1,0 +1,14 @@
+BaseDirectory=C:\Users\bbben\Desktop\BMS\BmsSerialDemo\
+cloudSettingsPath=C:\Users\bbben\Desktop\BMS\BmsSerialDemo\settings\cloud-connection.txt
+resolved=C:\Users\bbben\Desktop\BMS\BmsSerialDemo\settings
+resolvedExists=True
+settingsDirExists=True
+user=bbben
+x64=True
+commonAppData=C:\ProgramData
+localAppData=C:\Users\bbben\AppData\Local
+machineSettings=C:\ProgramData\BmsSerialDemo\settings
+machineUsable=False
+userSettings=C:\Users\bbben\AppData\Local\BmsSerialDemo\settings
+userUsable=False
+deviceId=mk_f2bffb813f4c4346344618f40486edc3

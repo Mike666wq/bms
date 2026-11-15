@@ -23,6 +23,7 @@ namespace BmsSerialDemo
         [DataMember(Name="subscriptionId",IsRequired=true)]public string SubscriptionId{get;set;}
         [DataMember(Name="leaseSeconds",IsRequired=true)]public int LeaseSeconds{get;set;}
         [DataMember(Name="requestedPacks",IsRequired=true)]public int[] RequestedPacks{get;set;}
+        [DataMember(Name="allowSimulation",EmitDefaultValue=false)]public bool? AllowSimulation{get;set;}
         [DataMember(Name="backfillSeconds",EmitDefaultValue=false)]public int BackfillSeconds{get;set;}
         // 以下为设备配置下行（云端说了算）。全部可选且不带 IsRequired：
         // 旧云端回包里没有这些字段，标了必填就会反序列化失败、整端离线。
@@ -271,6 +272,8 @@ namespace BmsSerialDemo
             bool changed=false;
             if(!String.IsNullOrEmpty(reply.State)&&!String.Equals(deviceState,reply.State,StringComparison.Ordinal)){deviceState=reply.State;changed=true;}
             if(reply.UploadAllowed.HasValue&&uploadAllowed!=reply.UploadAllowed){uploadAllowed=reply.UploadAllowed;changed=true;}
+            // 授权开关随时可能被管理员改动：每次都按云端回包为准。
+            if(reply.AllowSimulation.HasValue&&allowSimulation!=reply.AllowSimulation){allowSimulation=reply.AllowSimulation;changed=true;}
             CloudEnrollment state;lock(enrollmentGate){state=enrollment;}
             if(state!=null)
             {
