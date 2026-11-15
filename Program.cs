@@ -355,9 +355,10 @@ namespace BmsSerialDemo
         {
             Panel viewport=new Panel{Dock=DockStyle.Fill,AutoScroll=true,BackColor=Color.FromArgb(239,244,249)};
             TableLayoutPanel layout = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 1, RowCount = 4, Padding = new Padding(12, 9, 12, 8), Margin=Padding.Empty, BackColor = Color.FromArgb(239, 244, 249) };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 88)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,250)); layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));// 工具栏行必须自适应：WrapContents=true 时窄屏会换行，写死 40 会把第二行（连接状态）裁掉。
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 88)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,250)); layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));
             viewport.Controls.Add(layout);page.Controls.Add(viewport);
-            FlowLayoutPanel head = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = false, BackColor = Color.Transparent, Padding = new Padding(1, 1, 1, 1) };
+            FlowLayoutPanel head = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, AutoScroll = false, BackColor = Color.Transparent, Padding = new Padding(1, 1, 1, 1) };
             head.Controls.Add(new Label { Text = "实时总览", Font = PageTitleFont, AutoSize = true, ForeColor = Color.FromArgb(25, 52, 82), Margin = new Padding(0, 1, 20, 0) });
             livePollButton = new StyledActionButton { Text = "开始实时采集", IconGlyph="▶", Width = 166, Height = 34, BackColor = Color.FromArgb(65,111,232), ForeColor = Color.White, Margin = new Padding(0, 0, 16, 0) };
             livePollButton.Click += delegate { TogglePolling(); };
