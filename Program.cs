@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.3.21.0")]
-[assembly: AssemblyFileVersion("1.3.21.0")]
+[assembly: AssemblyVersion("1.3.22.0")]
+[assembly: AssemblyFileVersion("1.3.22.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -220,7 +220,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.21"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.22"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             // 无人值守的模拟采集：--simulate 启动即勾选「模拟设备」。
             // 「模拟设备」是自绘控件，外部脚本点不动它；留这个开关给自动化验证和现场演示用。
@@ -278,7 +278,8 @@ namespace BmsSerialDemo
             // 在创建服务之前算好，免得工作线程先跑一轮看到 Enabled=true 又用旧名字去认领。
             bool enrollmentActiveOnStart=false;
             try{CloudEnrollment probe=CloudEnrollmentStore.Load(Path.Combine(Path.GetDirectoryName(cloudSettingsPath),CloudEnrollmentStore.FileName),CloudIdentity.LoadOrCreateMachineKey("BmsSerialDemo",AppDomain.CurrentDomain.BaseDirectory));enrollmentActiveOnStart=probe!=null&&probe.IsActive;}catch(Exception probeError){CloudNetworkErrors.Write(probeError);}
-            cloudConfiguration.Enabled=!diagnosticIsolation&&!IsAutomatedRun()&&cloudConfiguration.Enabled&&enrollmentActiveOnStart;
+            // 启动一律不连云端：必须由使用者填好名称后点「保存并连接」才发起请求。
+            cloudConfiguration.Enabled=false;
             cloudPublisher=new CloudRealtimeService(delegate{return cloudConfiguration;},null,ReadCloudHistory,Path.GetDirectoryName(cloudSettingsPath));publisher=cloudPublisher;
             LoadPeriodSettings(testDataRoot==null);
             FlowLayoutPanel bar = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = true, AutoScroll = true, Padding = new Padding(8, 5, 8, 3), BackColor = Color.FromArgb(247, 250, 253) };
