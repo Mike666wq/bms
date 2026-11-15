@@ -32,7 +32,9 @@ namespace BmsSerialDemo
             StyledActionButton diagnoseButton=new StyledActionButton{Text="连接诊断",IconGlyph="?",Width=144,Height=36,Margin=new Padding(4,6,4,2)};
             StyledActionButton saveCloudButton=new StyledActionButton{Text="保存并连接",IconGlyph="✓",Width=150,Height=36,Margin=new Padding(4,6,4,2)};
             actions.Controls.Add(saveCloudButton);actions.Controls.Add(reclaimButton);actions.Controls.Add(diagnoseButton);
-            saveCloudButton.Click+=delegate{CloudConfiguration current=getConfig();string oldAlias=current.Alias??"";string newAlias=(aliasValue.Text??"").Trim();current.Alias=newAlias;current.Enabled=cloudEnabled.Checked;current.Save();saveConfig(current);// 只要不是「已接入」都重新提交：待批准/被拒绝时改过名字，不重置就还是用旧的 claimId 查状态，
+            saveCloudButton.Click+=delegate{CloudConfiguration current=getConfig();string oldAlias=current.Alias??"";string newAlias=(aliasValue.Text??"").Trim();
+                // 占位符不是名字：别名框空着时会显示它，别把它存进配置。
+                if(newAlias=="（等待云端分配）")newAlias="";current.Alias=newAlias;current.Enabled=cloudEnabled.Checked;current.Save();saveConfig(current);// 只要不是「已接入」都重新提交：待批准/被拒绝时改过名字，不重置就还是用旧的 claimId 查状态，
                 // 云端那条记录的名字永远改不过来。已接入则直接心跳，不需要重新申请。
                 if(!String.Equals(oldAlias,newAlias,StringComparison.Ordinal)||service.EnrollmentState!="已接入")service.ResetEnrollment();RefreshStatus();};form.Controls.Add(actions,1,2);settings.Controls.Add(form);diagnoseButton.Click+=delegate{using(CloudDiagnosticsDialog dialog=new CloudDiagnosticsDialog(getConfig()))dialog.ShowDialog(this);};
             GroupBox credentials=Card("凭据备份");credentials.Height=126;
@@ -101,7 +103,7 @@ namespace BmsSerialDemo
         static TableLayoutPanel FieldGrid(){TableLayoutPanel p=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,ColumnCount=2,BackColor=Color.White,Padding=new Padding(6,5,6,8),Font=BodyFont};p.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,160));p.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));return p;}
         static void AddField(TableLayoutPanel panel,string caption,Control field,int row){panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));Label label=new Label{Text=caption,AutoSize=true,Margin=new Padding(4,9,8,4),ForeColor=Color.FromArgb(88,105,125),Font=BodyFont};field.Margin=new Padding(3,3,4,3);panel.Controls.Add(label,0,row);panel.Controls.Add(field,1,row);}
         static void AddStatus(TableLayoutPanel panel,string heading,Control value,int row){panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));Label label=new Label{Text=heading,AutoSize=true,Margin=new Padding(4,7,6,6),ForeColor=Color.FromArgb(100,116,135),Font=BodyFont};value.Margin=new Padding(4,7,4,6);value.Font=heading=="当前状态"?StatusHeadingFont:BodyFont;panel.Controls.Add(label,0,row);panel.Controls.Add(value,1,row);}
-        void LoadConfig(){CloudConfiguration c=getConfig();idValue.Text=c.DeviceId;aliasValue.Text=c.Alias??"";cloudEnabled.Checked=MainForm.CloudEnabledOnStart;RefreshStatus();}
+        void LoadConfig(){CloudConfiguration c=getConfig();idValue.Text=c.DeviceId;aliasValue.Text=(c.Alias=="（等待云端分配）"?"":(c.Alias??""));cloudEnabled.Checked=MainForm.CloudEnabledOnStart;RefreshStatus();}
         /// <summary>
         /// 唯一保留的手动动作：把「我是谁」重新交回云端排队。
         /// 用于设备被删除/令牌被撤销后由现场人员发起重新接入——仍然不需要填任何东西。
