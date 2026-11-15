@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.3.12.0")]
-[assembly: AssemblyFileVersion("1.3.12.0")]
+[assembly: AssemblyVersion("1.3.13.0")]
+[assembly: AssemblyFileVersion("1.3.13.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -61,6 +61,38 @@ namespace BmsSerialDemo
                 return null;
             };
             if(args.Length>0&&args[0]=="--cloud-probe"){try{Uri probe=new Uri(args.Length>1?args[1]:"https://pv-ac.bbben.xyz");string result=CloudDiagnostics.RunEndpointProbeAsync(probe,CancellationToken.None).GetAwaiter().GetResult();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-probe-result.txt"),result,new UTF8Encoding(true));}catch(Exception e){File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-probe-result.txt"),CloudNetworkErrors.Describe(e),new UTF8Encoding(true));Environment.ExitCode=1;}return;}
+            // 排障/验收开关：用真实历史数据导一次 CSV 就退出。
+            // 导出平时只能在界面上点，自动化没法验证；这里走同一条 MonthlyCatalog.ExportCsvAsync，
+            // 产出真文件、真行数，现场也能用它确认"导出"到底能不能用。
+            if (args.Length > 0 && args[0] == "--export-now") {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string resultPath = Path.Combine(baseDir, "export-result.txt");
+                try {
+                    string dataDir = Path.Combine(baseDir, "data");
+                    string idPath = Path.Combine(baseDir, "settings", "device-id.txt");
+                    if (!File.Exists(idPath)) { File.WriteAllText(resultPath, "FAIL: 找不到 settings/device-id.txt", new UTF8Encoding(true)); Environment.ExitCode = 1; return; }
+                    string deviceId = File.ReadAllText(idPath).Trim();
+                    string source = args.Length > 1 ? args[1] : "simulation";
+                    string outPath = args.Length > 2 ? args[2] : Path.Combine(baseDir, "export-now-" + DateTime.Now.ToString("HHmmss") + ".csv");
+                    MonthlyCatalog catalog = new MonthlyCatalog(dataDir, deviceId);
+                    IProgress<XlsxExportProgress> progress = new Progress<XlsxExportProgress>(delegate { });
+                    long rows = catalog.ExportCsvAsync(source, outPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), DateTime.UtcNow.AddDays(1), 1, progress, CancellationToken.None).GetAwaiter().GetResult();
+                    long bytes = new FileInfo(outPath).Length;
+                    string head = "";
+                    using (StreamReader reader = new StreamReader(outPath, Encoding.UTF8)) { for (int i = 0; i < 3 && !reader.EndOfStream; i++) head += reader.ReadLine() + "\n"; }
+                    File.WriteAllText(resultPath,
+                        "OK rows=" + rows + " bytes=" + bytes + Environment.NewLine +
+                        "path=" + outPath + Environment.NewLine +
+                        "deviceId=" + deviceId + Environment.NewLine +
+                        "source=" + source + Environment.NewLine +
+                        "--- 前 3 行 ---" + Environment.NewLine + head,
+                        new UTF8Encoding(true));
+                } catch (Exception e) {
+                    File.WriteAllText(resultPath, "FAIL: " + e, new UTF8Encoding(true));
+                    Environment.ExitCode = 1;
+                }
+                return;
+            }
             if (diagnosticMode) { if(args[0] == "--test-cloud") { try { int count=CloudRealtimeService.RunSelfTests(); File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-test-result.txt"),"PASS: "+count+" checks\r\n",Encoding.UTF8); Environment.ExitCode=0; } catch(Exception ex) { File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"cloud-test-result.txt"),"FAIL: "+ex.ToString()+"\r\n",Encoding.UTF8); Environment.ExitCode=1; } return; } if(args[0] == "--self-test") { SelfTest.Run(); return; } if(args[0] == "--test-ui-layout") { int checks=UiLayoutTests.Run();File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"ui-layout-test-result.txt"),"PASS: "+checks+" UI layout checks (125%/150% simulated; Windows display scaling unchanged).\r\n",Encoding.UTF8);return; } int duration=6500;if(args.Length>2)Int32.TryParse(args[2],out duration);MainForm.CapturePreview(args.Length > 1 ? args[1] : "1360x920",Math.Max(6500,Math.Min(600000,duration))); return; }
             try { Application.Run(new MainForm()); }
             catch(Exception e) { CrashLogger.Write("Startup/main loop exception", e); try { MessageBox.Show("程序遇到未处理错误，将退出。诊断日志已保存到 logs 目录。", "BMS 运行错误", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { } }
@@ -185,7 +217,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.12"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.13"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             // 无人值守的模拟采集：--simulate 启动即勾选「模拟设备」。
             // 「模拟设备」是自绘控件，外部脚本点不动它；留这个开关给自动化验证和现场演示用。

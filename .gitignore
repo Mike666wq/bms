@@ -54,3 +54,8 @@ research/
 *.suo
 Thumbs.db
 Desktop.ini
+
+# 运行时产物：导出结果、诊断日志
+export-result.txt
+export-now-*.csv
+acme-identity-diagnostic.txt
