@@ -99,7 +99,7 @@ namespace BmsSerialDemo
         static TableLayoutPanel FieldGrid(){TableLayoutPanel p=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,ColumnCount=2,BackColor=Color.White,Padding=new Padding(6,5,6,8),Font=BodyFont};p.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,160));p.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));return p;}
         static void AddField(TableLayoutPanel panel,string caption,Control field,int row){panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));Label label=new Label{Text=caption,AutoSize=true,Margin=new Padding(4,9,8,4),ForeColor=Color.FromArgb(88,105,125),Font=BodyFont};field.Margin=new Padding(3,3,4,3);panel.Controls.Add(label,0,row);panel.Controls.Add(field,1,row);}
         static void AddStatus(TableLayoutPanel panel,string heading,Control value,int row){panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));Label label=new Label{Text=heading,AutoSize=true,Margin=new Padding(4,7,6,6),ForeColor=Color.FromArgb(100,116,135),Font=BodyFont};value.Margin=new Padding(4,7,4,6);value.Font=heading=="当前状态"?StatusHeadingFont:BodyFont;panel.Controls.Add(label,0,row);panel.Controls.Add(value,1,row);}
-        void LoadConfig(){CloudConfiguration c=getConfig();idValue.Text=c.DeviceId;aliasValue.Text=c.Alias??"";cloudEnabled.Checked=c.Enabled;RefreshStatus();}
+        void LoadConfig(){CloudConfiguration c=getConfig();idValue.Text=c.DeviceId;aliasValue.Text=c.Alias??"";cloudEnabled.Checked=MainForm.CloudEnabledOnStart;RefreshStatus();}
         /// <summary>
         /// 唯一保留的手动动作：把「我是谁」重新交回云端排队。
         /// 用于设备被删除/令牌被撤销后由现场人员发起重新接入——仍然不需要填任何东西。

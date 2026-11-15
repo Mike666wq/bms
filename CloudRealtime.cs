@@ -361,13 +361,23 @@ namespace BmsSerialDemo
                 }
                 if(String.Equals(reply.State,"rejected",StringComparison.Ordinal))
                 {
-                    state.State="rejected";try{lock(enrollmentGate)CloudEnrollmentStore.Save(state);}catch{}
-                    Update("接入被拒绝",String.IsNullOrEmpty(reply.Message)?"管理员拒绝了该设备":reply.Message,false);
-                    await Delay(30000);return false;
+                    // 被拒绝后必须清掉 ClaimId / ClaimSecret：否则下一轮仍然走「查询状态」，
+                    // 而那条记录永远是 rejected，设备就卡死在这里再也上不了线。
+                    // 清掉之后下一轮会重新发起认领，管理员才有机会重新批准。
+                    state.State="rejected";
+                    state.ClaimId=null;state.ClaimSecret=null;
+                    try{lock(enrollmentGate)CloudEnrollmentStore.Save(state);}catch{}
+                    Update("接入被拒绝",
+                        (String.IsNullOrEmpty(reply.Message)?"管理员拒绝了该设备":reply.Message)+
+                        "；5 分钟后会自动重新提交申请，也可点「重新申请接入」立即重试",false);
+                    // 只调间隔、不阻塞：心跳要继续走，否则界面会僵住 5 分钟。
+                    enrollIntervalMs=300000;
+                    return false;
                 }
                 // 认领凭据必须落盘：否则进程重启会生成新 secret，而云端那条记录的哈希对不上，
                 // 结果就是每次启动都 401、永远批准不了。
                 try{lock(enrollmentGate)CloudEnrollmentStore.Save(state);}catch(Exception saveError){CloudNetworkErrors.Write(saveError);}
+                state.State="pending";   // 重新认领成功后状态要跟着回来，否则界面一直停在「接入被拒绝」
                 Update("等待批准","已提交接入申请，等待管理员在云端网页批准",false);
                 return false;
             }

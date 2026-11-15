@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.3.15.0")]
-[assembly: AssemblyFileVersion("1.3.15.0")]
+[assembly: AssemblyVersion("1.3.16.0")]
+[assembly: AssemblyFileVersion("1.3.16.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -191,6 +191,9 @@ namespace BmsSerialDemo
         readonly Framer framer = new Framer();
         readonly object receiveLock = new object();
         SerialPort serial;
+        // 文件里保存的「用户意愿」：启动时 Enabled 被强制关掉（不自动连），
+        // 但界面上的复选框要反映这个值，否则用户点保存会把 0 写回去。
+        internal static bool CloudEnabledOnStart;
         Request pending;
         bool connected, polling, simulatedConnection, closing;
         volatile bool rawByteDiagnostics;
@@ -217,7 +220,7 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.15"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.16"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             // 无人值守的模拟采集：--simulate 启动即勾选「模拟设备」。
             // 「模拟设备」是自绘控件，外部脚本点不动它；留这个开关给自动化验证和现场演示用。
@@ -270,6 +273,7 @@ namespace BmsSerialDemo
             // 启动一律不连云端：等用户在「云端连接」页填好设备名、点「保存并连接」再连。
             // 之前沿用配置文件里的值，结果程序一打开就用上一次的名字发认领，
             // 本地改了名字云端还是旧的。
+            CloudEnabledOnStart=cloudConfiguration.Enabled;
             cloudConfiguration.Enabled=false;   // 仅运行时，不写盘：文件里的值留给「保存并连接」读
             cloudPublisher=new CloudRealtimeService(delegate{return cloudConfiguration;},null,ReadCloudHistory,Path.GetDirectoryName(cloudSettingsPath));publisher=cloudPublisher;
             LoadPeriodSettings(testDataRoot==null);
