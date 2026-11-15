@@ -13,8 +13,8 @@ using System.Windows.Forms;
 
 using Acme.Cloud;
 using Acme.Base;
-[assembly: AssemblyVersion("1.3.13.0")]
-[assembly: AssemblyFileVersion("1.3.13.0")]
+[assembly: AssemblyVersion("1.3.14.0")]
+[assembly: AssemblyFileVersion("1.3.14.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8", FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace BmsSerialDemo
@@ -217,12 +217,21 @@ namespace BmsSerialDemo
         {
             if(!String.IsNullOrEmpty(testDataRoot)){dataRoot=testDataRoot;cloudSettingsPath=Path.Combine(testDataRoot,"settings","cloud-connection.txt");diagnosticIsolation=true;}
             if(!String.IsNullOrEmpty(testPeriodSettingsPath))periodSettingsPath=testPeriodSettingsPath;
-            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.13"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
+            AutoScaleMode=AutoScaleMode.Dpi;Text = "BMS 实时监控 1.3.14"; Width = 1360; Height = 920; MinimumSize = new Size(1050, 720); BackColor = UiTheme.Canvas;
             Font = BodyFont; ForeColor = Color.FromArgb(40, 56, 66);
             // 无人值守的模拟采集：--simulate 启动即勾选「模拟设备」。
             // 「模拟设备」是自绘控件，外部脚本点不动它；留这个开关给自动化验证和现场演示用。
             if(Array.IndexOf(Environment.GetCommandLineArgs(),"--simulate")>=0)simulate.Checked=true;
             deviceId=LoadDeviceId();
+            // 测试入口：--open-page=云端连接 直接切到指定页签。
+            // 这套界面的页签是自绘的，UIA 看不到、合成消息也不响应，
+            // 与其硬啃自动化，不如让程序自己提供可测试入口。
+            Load += delegate {
+                string want = null;
+                foreach (string a in Environment.GetCommandLineArgs()) if (a.StartsWith("--open-page=")) { want = a.Substring(12); break; }
+                if (String.IsNullOrEmpty(want)) return;
+                foreach (TabPage tp in mainTabs.TabPages) if (tp.Text != null && tp.Text.IndexOf(want, StringComparison.Ordinal) >= 0) { mainTabs.SelectedTab = tp; break; }
+            };
             // 排障开关：只打印身份路径解析结果就退出，用来确认现场到底落在哪个目录。
             if(Array.IndexOf(Environment.GetCommandLineArgs(),"--dump-paths")>=0)
             {
