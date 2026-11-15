@@ -32,7 +32,7 @@ namespace BmsSerialDemo
             StyledActionButton diagnoseButton=new StyledActionButton{Text="连接诊断",IconGlyph="?",Width=144,Height=36,Margin=new Padding(4,6,4,2)};
             StyledActionButton saveCloudButton=new StyledActionButton{Text="保存并连接",IconGlyph="✓",Width=150,Height=36,Margin=new Padding(4,6,4,2)};
             actions.Controls.Add(saveCloudButton);actions.Controls.Add(reclaimButton);actions.Controls.Add(diagnoseButton);
-            saveCloudButton.Click+=delegate{CloudConfiguration current=getConfig();current.Alias=(aliasValue.Text??"").Trim();current.Enabled=cloudEnabled.Checked;current.Save();saveConfig(current);RefreshStatus();};form.Controls.Add(actions,1,2);settings.Controls.Add(form);diagnoseButton.Click+=delegate{using(CloudDiagnosticsDialog dialog=new CloudDiagnosticsDialog(getConfig()))dialog.ShowDialog(this);};
+            saveCloudButton.Click+=delegate{CloudConfiguration current=getConfig();string oldAlias=current.Alias??"";string newAlias=(aliasValue.Text??"").Trim();current.Alias=newAlias;current.Enabled=cloudEnabled.Checked;current.Save();saveConfig(current);if(!String.Equals(oldAlias,newAlias,StringComparison.Ordinal))service.ResetEnrollment();RefreshStatus();};form.Controls.Add(actions,1,2);settings.Controls.Add(form);diagnoseButton.Click+=delegate{using(CloudDiagnosticsDialog dialog=new CloudDiagnosticsDialog(getConfig()))dialog.ShowDialog(this);};
             GroupBox credentials=Card("凭据备份");credentials.Height=126;
             TableLayoutPanel credentialLayout=new TableLayoutPanel{Dock=DockStyle.Top,AutoSize=true,ColumnCount=1,RowCount=2,BackColor=Color.White,Padding=new Padding(6,5,6,8)};
             FlowLayoutPanel credentialActions=new FlowLayoutPanel{AutoSize=true,WrapContents=true,Dock=DockStyle.Fill};
